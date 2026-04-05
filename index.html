@@ -1,0 +1,2419 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سجل أهدافي وخطتي اليومية</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script>
+        // Firebase web app config - inlined for single-file mode
+        var FIREBASE_CONFIG = {
+            apiKey: "AIzaSyBj9dkTsf22p4GpLrVzZr1qdC2UFWoCi2Q",
+            authDomain: "to-do-aeb49.firebaseapp.com",
+            projectId: "to-do-aeb49",
+            storageBucket: "to-do-aeb49.firebasestorage.app",
+            messagingSenderId: "434009324425",
+            appId: "1:434009324425:web:ed7078ea09ed89c1f17f58",
+            measurementId: "G-8S5SLY6S2Y"
+        };
+        // اختياري: ضع بريدك هنا فقط للاستخدام المحلي/العرضي
+        var ADMIN_EMAIL = "";
+    </script>
+    <script>
+        (function() {
+            if (typeof FIREBASE_CONFIG !== 'undefined') {
+                try {
+                    if (firebase.apps.length === 0) {
+                        firebase.initializeApp(FIREBASE_CONFIG);
+                    }
+                } catch (e) {
+                    console.error('Firebase init error', e);
+                }
+            }
+            var auth = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth() : null;
+            var db = (typeof firebase !== 'undefined' && firebase.firestore) ? firebase.firestore() : null;
+            window.isAdmin = false;
+            function ensureUserProfile(user) {
+                if (!db || !user) return;
+                var ref = db.collection('userProfiles').doc(user.uid);
+                ref.get().then(function(snap){
+                    if (!snap.exists) {
+                        // دائماً أنشئ كـ user لتوافق قواعد Firestore
+                        return ref.set({ email: user.email || '', role: 'user', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                    } else {
+                        var data = snap.data() || {};
+                        window.isAdmin = data.role === 'admin';
+                    }
+                }).catch(function(e){ console.error('ensureUserProfile error', e); });
+            }
+            if (auth) {
+                auth.onAuthStateChanged(function(user) {
+                    try {
+                        var appContainer = document.querySelector('.container');
+                        var authScreen = document.getElementById('authScreen');
+                        if (typeof location !== 'undefined' && location.protocol === 'file:') {
+                            var onlineOnly = document.getElementById('onlineOnly');
+                            if (onlineOnly) onlineOnly.style.display = 'flex';
+                            if (appContainer) appContainer.style.display = 'none';
+                            if (authScreen) authScreen.style.display = 'none';
+                            console.warn('Serve over http(s) to use Firestore.');
+                            return;
+                        }
+                        if (!user) {
+                            if (authScreen) authScreen.style.display = 'flex';
+                            if (appContainer) appContainer.style.display = 'none';
+                            return;
+                        }
+                        if (authScreen) authScreen.style.display = 'none';
+                        if (appContainer) appContainer.style.display = 'block';
+                        ensureUserProfile(user);
+                    } catch (e) {
+                        console.error(e);
+                    }
+                });
+            }
+            window.appSignOut = function() {
+                if (auth) {
+                    auth.signOut().catch(function(){});
+                }
+            };
+        })();
+    </script>
+    <style>
+        :root {
+            --primary-color: #4a6bff;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            --info-color: #17a2b8;
+            --light-color: #f8f9fa;
+            --dark-color: #343a40;
+            --text-color: #333;
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+            --border-color: #e0e0e0;
+        }
+
+        [data-theme="dark"] {
+            --primary-color: #5d7aff;
+            --secondary-color: #868e96;
+            --success-color: #3bd963;
+            --danger-color: #ff6b6b;
+            --warning-color: #ffd43b;
+            --info-color: #3bc9db;
+            --light-color: #343a40;
+            --dark-color: #f8f9fa;
+            --text-color: #f1f3f5;
+            --bg-color: #212529;
+            --card-bg: #2b3035;
+            --border-color: #495057;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Tajawal', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        header h1 {
+            font-size: 28px;
+            color: var(--primary-color);
+        }
+
+        header h1 i {
+            margin-left: 10px;
+        }
+
+        .motivational-banner {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 500;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-card h3 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: var(--secondary-color);
+        }
+
+        .stat-card p {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-header h2 {
+            font-size: 22px;
+            color: var(--primary-color);
+        }
+
+        .section-header h2 i {
+            margin-left: 10px;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        .btn-primary:hover {
+            background-color: #3a56d4;
+        }
+
+        /* Larger tap targets */
+        .btn-primary, .action-btn, .todo-actions button {
+            min-height: 44px;
+        }
+
+        .goals-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .goal-card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s;
+            position: relative;
+        }
+
+        .goal-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .goal-card h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: var(--primary-color);
+        }
+
+        .goal-dates {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: var(--secondary-color);
+        }
+
+        .goal-note {
+            font-size: 14px;
+            color: var(--text-color);
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: rgba(74, 107, 255, 0.1);
+            border-radius: 5px;
+            border-right: 3px solid var(--primary-color);
+        }
+
+        .progress-container {
+            margin-bottom: 15px;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: var(--primary-color);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .goal-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--secondary-color);
+            transition: color 0.3s;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        .action-btn:hover {
+            color: var(--primary-color);
+            background-color: rgba(74, 107, 255, 0.1);
+        }
+
+        .action-btn i {
+            margin-left: 5px;
+        }
+
+        /* Drag handle */
+        .drag-handle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            color: var(--secondary-color);
+            margin-left: 8px;
+            cursor: grab;
+        }
+        .drag-handle:active { cursor: grabbing; }
+
+        .todo-list {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+            cursor: move;
+        }
+
+        .todo-item:last-child {
+            border-bottom: none;
+        }
+
+        .todo-checkbox {
+            margin-left: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .todo-text {
+            flex-grow: 1;
+            font-size: 16px;
+        }
+
+        .todo-text.completed {
+            text-decoration: line-through;
+            color: var(--secondary-color);
+        }
+
+        .todo-due-date {
+            font-size: 12px;
+            color: var(--secondary-color);
+            margin-right: 15px;
+        }
+
+        .todo-actions {
+            display: flex;
+        }
+
+        .todo-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--secondary-color);
+            margin-right: 10px;
+            font-size: 16px;
+            transition: color 0.3s;
+        }
+
+        .todo-actions button:hover {
+            color: var(--primary-color);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            overflow: auto;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            margin: 10% auto;
+            padding: 25px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            font-size: 24px;
+            color: var(--secondary-color);
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: var(--text-color);
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            color: var(--primary-color);
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            background-color: var(--card-bg);
+            color: var(--text-color);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .theme-switch {
+            display: flex;
+            align-items: center;
+        }
+
+        .theme-switch span {
+            margin-left: 10px;
+            font-size: 14px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary-color);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .filters select {
+            padding: 8px 12px;
+            border-radius: 5px;
+            border: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+            color: var(--text-color);
+        }
+
+        /* تأثيرات للتحفيز */
+        .celebration {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1001;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        .celebration.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .celebration-content {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            max-width: 80%;
+        }
+
+        .celebration-content h2 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+        }
+
+        .celebration-content p {
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+
+        .urgent-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: var(--danger-color);
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .goal-badge {
+            background-color: rgba(74, 107, 255, 0.1);
+            color: var(--primary-color);
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+
+        /* Chatbot Styles */
+        .chatbot-container {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 999;
+            width: 350px;
+            transition: all 0.3s ease;
+        }
+
+        .chatbot-closed {
+            transform: translateY(calc(100% - 50px));
+        }
+
+        .chatbot-toggle {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .chatbot-toggle:hover {
+            background-color: #3a56d4;
+            transform: scale(1.1);
+        }
+
+        .chatbot-window {
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            display: none;
+            height: 400px;
+            flex-direction: column;
+            border: 1px solid var(--border-color);
+        }
+
+        .chatbot-header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chatbot-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .chatbot-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .chatbot-messages {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+            word-wrap: break-word;
+        }
+
+        .bot-message {
+            align-self: flex-start;
+            background-color: rgba(74, 107, 255, 0.1);
+            border-top-right-radius: 5px;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .user-message {
+            align-self: flex-end;
+            background-color: var(--primary-color);
+            color: white;
+            border-top-left-radius: 5px;
+        }
+
+        .chatbot-input {
+            display: flex;
+            padding: 10px;
+            border-top: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+        }
+
+        .chatbot-input input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            outline: none;
+        }
+
+        .chatbot-input button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            margin-right: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chatbot-input button:hover {
+            background-color: #3a56d4;
+        }
+
+        .quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .quick-action-btn {
+            background-color: rgba(74, 107, 255, 0.1);
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
+            border-radius: 15px;
+            padding: 5px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .quick-action-btn:hover {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        /* Bottom bar for mobile */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--card-bg);
+            border-top: 1px solid var(--border-color);
+            display: none;
+            z-index: 1002;
+        }
+        .bottom-bar .bar-content {
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 6px;
+        }
+        .bottom-bar button {
+            flex: 1;
+            margin: 0 6px;
+            padding: 10px;
+            font-size: 14px;
+        }
+
+        /* Floating action button */
+        .fab {
+            position: fixed;
+            right: 16px;
+            bottom: 72px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: #fff;
+            border: none;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+            z-index: 1002;
+            cursor: pointer;
+        }
+        .fab:hover { background: #3a56d4; }
+
+        /* Full-screen modals on small screens */
+        @media (max-width: 640px) {
+            .modal-content {
+                width: 100%;
+                height: 100%;
+                max-width: 100%;
+                margin: 0;
+                border-radius: 0;
+                padding: 18px;
+            }
+            .bottom-bar { display: block; }
+            .fab { display: flex; }
+            .stats-container { grid-template-columns: 1fr; }
+            .goals-grid { grid-template-columns: 1fr; }
+            body { font-size: 16px; }
+            header h1 { font-size: 22px; }
+            .btn-primary { padding: 12px 16px; font-size: 15px; }
+            .form-group input, .form-group textarea, .form-group select { padding: 14px; font-size: 16px; }
+            .goal-actions {
+                flex-wrap: wrap;
+                gap: 6px;
+                justify-content: flex-start;
+            }
+            .action-btn { padding: 8px 10px; font-size: 14px; }
+            .todo-item { padding: 10px 0; }
+            .todo-text { font-size: 15px; }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .stats-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .goals-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .section-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .section-header .btn-primary {
+                margin-top: 10px;
+            }
+            
+            .goal-actions {
+                flex-wrap: wrap;
+                gap: 5px;
+            }
+
+            .chatbot-container {
+                width: 90%;
+                left: 5%;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="onlineOnly" style="display:none; position:fixed; inset:0; background:var(--bg-color); z-index:3000; align-items:center; justify-content:center; padding:20px;">
+        <div style="width:100%; max-width:520px; background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.08); padding:24px; text-align:center;">
+            <h2 style="color:var(--primary-color); margin-bottom:10px;">الوضع أونلاين فقط</h2>
+            <p style="color:var(--secondary-color); margin-bottom:16px;">
+                هذه النسخة تعمل فقط عبر http(s). شغل الملف باستخدام localhost لاستخدام Firebase.
+            </p>
+            <div style="text-align:start; font-size:14px; color:var(--text-color); background:rgba(74,107,255,0.06); border:1px solid var(--border-color); padding:12px; border-radius:8px;">
+                - Python 3: python -m http.server 5500<br>
+                - أو: npx serve -l 5500 --single<br>
+                ثم افتح: http://localhost:5500/to%20do%20list%20%20with%20ai%20chat%20bot%20.html
+            </div>
+        </div>
+    </div>
+    <!-- Bottom action bar (mobile) -->
+    <div class="bottom-bar">
+        <div class="bar-content">
+            <button id="barAddGoal" class="btn-primary"><i class="fas fa-plus"></i> هدف</button>
+            <button id="barMyTasks" class="btn-primary"><i class="fas fa-list-check"></i> مهامي</button>
+            <button id="barAdmin" class="btn-primary" style="display:none;"><i class="fas fa-user-shield"></i> إدارة</button>
+        </div>
+    </div>
+    <!-- Floating action button -->
+    <button id="fabAdd" class="fab" title="إضافة هدف"><i class="fas fa-plus"></i></button>
+    <div id="authScreen" style="display:none; position:fixed; inset:0; background:var(--bg-color); z-index:2000; align-items:center; justify-content:center; padding:20px;">
+        <div style="width:100%; max-width:420px; background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.08); padding:24px;">
+            <div style="display:flex; justify-content:center; align-items:center; gap:8px; color:var(--primary-color); margin-bottom:12px;">
+                <i class="fas fa-bullseye"></i>
+                <strong>سجل أهدافي</strong>
+            </div>
+            <h2 style="text-align:center; color:var(--primary-color); margin:0 0 8px;">تسجيل الدخول</h2>
+            <p style="text-align:center; color:var(--secondary-color); margin:0 0 18px;">ادخل إلى خطتك اليومية وأهدافك</p>
+            <div class="form-group">
+                <label for="authEmail">البريد الإلكتروني</label>
+                <input id="authEmail" type="email" placeholder="example@email.com" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label for="authPassword">كلمة المرور</label>
+                <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password">
+            </div>
+            <button id="authLoginBtn" class="btn-primary" style="width:100%; margin-top:6px;"><i class="fas fa-right-to-bracket"></i> دخول</button>
+            <button id="authRegisterBtn" class="btn-primary" style="width:100%; margin-top:10px; background:#fff; color:var(--primary-color); border:1px solid var(--primary-color);"><i class="fas fa-user-plus"></i> إنشاء حساب جديد</button>
+            <div style="display:flex; align-items:center; margin:16px 0; color:#888; font-size:13px;">
+                <span style="flex:1; height:1px; background:#e5e7eb;"></span>
+                <span style="padding:0 10px;">أو</span>
+                <span style="flex:1; height:1px; background:#e5e7eb;"></span>
+            </div>
+            <button id="authGoogleBtn" class="btn-primary" style="width:100%; background:#fff; color:var(--primary-color); border:1px solid var(--primary-color);"><i class="fab fa-google"></i> المتابعة عبر Google</button>
+            <div id="authMsgError" style="display:none; background:#ffe6e6; color:#c0392b; padding:10px; border-radius:8px; margin-top:10px;"></div>
+            <div id="authMsgSuccess" style="display:none; background:#e8f5e9; color:#2e7d32; padding:10px; border-radius:8px; margin-top:10px;"></div>
+        </div>
+    </div>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-bullseye"></i> goal</h1>
+            <div class="theme-switch">
+                <span>وضع ليلي</span>
+                <label class="switch">
+                    <input type="checkbox" id="darkModeToggle">
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <button class="btn-primary" style="margin-right: 10px;" onclick="appSignOut()">
+                <i class="fas fa-sign-out-alt"></i> تسجيل الخروج
+            </button>
+            <button id="openAdminPanelBtn" class="btn-primary" style="margin-right: 10px; display:none;">
+                <i class="fas fa-user-shield"></i> لوحة الإدارة
+            </button>
+        </header>
+<!--
+        <div class="motivational-banner">
+            <p id="motivationalQuote">"كل يوم صغير يقربك لهدفك الكبير!"</p>
+        </div>-->
+
+        <div class="stats-container">
+            <div class="stat-card">
+                <h3>الأهداف المكتملة</h3>
+                <p id="completedGoals">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>المهام المكتملة</h3>
+                <p id="completedTasks">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>نسبة التقدم</h3>
+                <p id="overallProgress">0%</p>
+            </div>
+        </div>
+
+        <section class="goals-section">
+            <div class="section-header">
+                <h2><i class="fas fa-flag"></i> أهدافي</h2>
+                <button id="addGoalBtn" class="btn-primary">
+                    <i class="fas fa-plus"></i> إضافة هدف جديد
+                </button>
+            </div>
+
+            <div id="goalsContainer" class="goals-grid">
+                <!-- الأهداف ستضاف هنا ديناميكيًا -->
+            </div>
+        </section>
+
+        <section class="todo-section">
+            <div class="section-header">
+                <h2><i class="fas fa-tasks"></i> مهام اليوم</h2>
+                <div class="filters">
+                    <select id="goalFilter">
+                        <option value="all">كل الأهداف</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="todoContainer" class="todo-list">
+                <!-- المهام ستضاف هنا ديناميكيًا -->
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal إضافة هدف جديد -->
+    <div id="goalModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>إضافة هدف جديد</h2>
+            <form id="goalForm">
+                <div class="form-group">
+                    <label for="goalName">اسم الهدف</label>
+                    <input type="text" id="goalName" required placeholder="مثال: تعلم برمجة الويب">
+                </div>
+                <div class="form-group">
+                    <label for="startDate">تاريخ البداية</label>
+                    <input type="date" id="startDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="endDate">تاريخ النهاية</label>
+                    <input type="date" id="endDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="goalNote">ملاحظة أو نصيحة</label>
+                    <textarea id="goalNote" rows="3" placeholder="اكتب ملاحظة تحفيزية لنفسك..."></textarea>
+                </div>
+                <button type="submit" class="btn-primary">حفظ الهدف</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal تعديل هدف -->
+    <div id="editGoalModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>تعديل الهدف</h2>
+            <form id="editGoalForm">
+                <input type="hidden" id="editGoalId">
+                <div class="form-group">
+                    <label for="editGoalName">اسم الهدف</label>
+                    <input type="text" id="editGoalName" required placeholder="مثال: تعلم برمجة الويب">
+                </div>
+                <div class="form-group">
+                    <label for="editStartDate">تاريخ البداية</label>
+                    <input type="date" id="editStartDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="editEndDate">تاريخ النهاية</label>
+                    <input type="date" id="editEndDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="editGoalNote">ملاحظة أو نصيحة</label>
+                    <textarea id="editGoalNote" rows="3" placeholder="اكتب ملاحظة تحفيزية لنفسك..."></textarea>
+                </div>
+                <button type="submit" class="btn-primary">حفظ التعديلات</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal إضافة مهمة جديدة -->
+    <div id="taskModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>إضافة مهمة جديدة</h2>
+            <form id="taskForm">
+                <input type="hidden" id="taskGoalId">
+                <div class="form-group">
+                    <label for="taskName">اسم المهمة</label>
+                    <input type="text" id="taskName" required placeholder="مثال: إنهاء دورة HTML الأساسية">
+                </div>
+                <div class="form-group">
+                    <label for="taskDueDate">موعد الإنجاز</label>
+                    <input type="date" id="taskDueDate">
+                </div>
+                <div class="form-group">
+                    <label for="assigneeSelect">تعيين إلى مستخدم</label>
+                    <select id="assigneeSelect">
+                        <option value="">— اختر مستخدماً —</option>
+                    </select>
+                    <div style="font-size:12px;color:var(--secondary-color);margin-top:6px;">
+                        سيتم عرض مستخدمي هذا الهدف فقط. إن كنت أدمن، يمكنك إضافة مستخدمين للهدف من “إدارة الوصول”.
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary">حفظ المهمة</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Modal إدارة الوصول للهدف -->
+    <div id="accessModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>إعدادات الوصول للهدف</h2>
+            <input type="hidden" id="accessGoalId">
+            <div class="form-group">
+                <label for="visibilityMode">وضع الرؤية</label>
+                <select id="visibilityMode">
+                    <option value="private">خاص (للمسندين فقط)</option>
+                    <option value="public">عام (متاح للجميع)</option>
+                    <option value="allowlist">قائمة مسموح بها</option>
+                    <option value="denylist">الكل ما عدا (قائمة محجوبة)</option>
+                </select>
+            </div>
+            <div class="form-group" id="usersListContainer">
+                <label>اختر المستخدمين</label>
+                <div id="usersChecklist" style="max-height:260px; overflow:auto; border:1px solid var(--border-color); border-radius:6px; padding:8px;"></div>
+            </div>
+            <button id="saveAccessBtn" class="btn-primary">حفظ الإعدادات</button>
+        </div>
+    </div>
+
+    <!-- Modal لوحة الإدارة: إدارة المستخدمين -->
+    <div id="adminPanelModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>لوحة الإدارة - المستخدمون</h2>
+            <div id="usersTable" style="max-height:420px; overflow:auto;">
+                <!-- سيتم ملؤها ديناميكياً -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Chatbot Container -->
+    <div class="chatbot-container">
+        <div class="chatbot-window">
+            <div class="chatbot-header">
+                <h3>مساعد التخطيط الذكي</h3>
+                <button class="chatbot-close">&times;</button>
+            </div>
+            <div class="chatbot-messages" id="chatbotMessages">
+                <div class="message bot-message">
+                    مرحبا! أنا مساعدك الذكي لتحقيق الأهداف. كيف يمكنني مساعدتك اليوم؟
+                    <div class="quick-actions">
+                        <button class="quick-action-btn">كيف أضيف هدف جديد؟</button>
+                        <button class="quick-action-btn">كيف أضيف مهمة؟</button>
+                        <button class="quick-action-btn">ما هي مهامي القادمة؟</button>
+                    </div>
+                </div>
+            </div>
+            <div class="chatbot-input">
+                <input type="text" id="chatbotInput" placeholder="اكتب رسالتك هنا...">
+                <button id="sendMessageBtn"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+        <button class="chatbot-toggle" id="chatbotToggle">
+            <i class="fas fa-robot"></i>
+        </button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // العناصر الأساسية
+            const goalsContainer = document.getElementById('goalsContainer');
+            const todoContainer = document.getElementById('todoContainer');
+            const addGoalBtn = document.getElementById('addGoalBtn');
+            const goalModal = document.getElementById('goalModal');
+            const editGoalModal = document.getElementById('editGoalModal');
+            const taskModal = document.getElementById('taskModal');
+            const goalForm = document.getElementById('goalForm');
+            const editGoalForm = document.getElementById('editGoalForm');
+            const taskForm = document.getElementById('taskForm');
+            const goalFilter = document.getElementById('goalFilter');
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const motivationalQuote = document.getElementById('motivationalQuote');
+            const completedGoalsElement = document.getElementById('completedGoals');
+            const completedTasksElement = document.getElementById('completedTasks');
+            const overallProgressElement = document.getElementById('overallProgress');
+            
+            // عناصر الشات بوت
+            const chatbotToggle = document.getElementById('chatbotToggle');
+            const chatbotWindow = document.querySelector('.chatbot-window');
+            const chatbotClose = document.querySelector('.chatbot-close');
+            const chatbotMessages = document.getElementById('chatbotMessages');
+            const chatbotInput = document.getElementById('chatbotInput');
+            const sendMessageBtn = document.getElementById('sendMessageBtn');
+            const quickActionBtns = document.querySelectorAll('.quick-action-btn');
+            
+            // بيانات التطبيق (Firestore)
+            let goals = [];
+            let tasks = [];
+            let unsubGoals = null;
+            let unsubTasks = null;
+            
+            // عبارات تحفيزية
+            const motivationalQuotes = [
+                "كل يوم صغير يقربك لهدفك الكبير!",
+                "خطوة واحدة اليوم أفضل من لا شيء غداً.",
+                "كل إنجاز، مهما كان صغيراً، يستحق الاحتفال!",
+                "طريق النجاح يبدأ من خطة واضحة. ابدأ الآن!",
+                "لا تتوقف حتى تفخر بنفسك!",
+                "أنت أقوى من التحديات التي تواجهك.",
+                "كل مهمة تكملها، أنت تبني مستقبلك بيدك!",
+                "الثقة بالنفس تبدأ من الالتزام بخطتك.",
+                "لو شعرت بالتعب... تذكر لماذا بدأت!",
+                "أهدافك تستحق كل جهد تبذله اليوم."
+            ];
+            
+            const completionMessages = [
+                "ممتاز! لقد أنجزت مهمة جديدة اليوم!",
+                "إنجاز رائع! استمر في التقدم!",
+                "أنت على الطريق الصحيح! احتفل بإنجازك!",
+                "كل مهمة تكملها تقربك من هدفك!",
+                "عمل رائع! أنت تبني عادات النجاح!"
+            ];
+            
+            // تهيئة التطبيق
+            initApp();
+            
+            // وظائف التهيئة
+            function initApp() {
+                // تشغيل مزامنة البيانات بعد تسجيل الدخول
+                if (typeof firebase !== 'undefined' && firebase.auth) {
+                    firebase.auth().onAuthStateChanged(function(u){
+                        if (!u) return;
+                        attachDataListeners(u);
+                        // إظهار زر لوحة الإدارة إذا كان المستخدم أدمن
+                        setTimeout(function(){
+                            const btn = document.getElementById('openAdminPanelBtn');
+                            if (btn) btn.style.display = window.isAdmin ? 'inline-block' : 'none';
+                            const barAdmin = document.getElementById('barAdmin');
+                            if (barAdmin) barAdmin.style.display = window.isAdmin ? 'inline-block' : 'none';
+                        }, 300);
+                    });
+                }
+                // تحميل الوضع الليلي من localStorage
+                const isDarkMode = localStorage.getItem('darkMode') === 'true';
+                darkModeToggle.checked = isDarkMode;
+                toggleDarkMode(isDarkMode);
+                
+                // عرض عبارة تحفيزية عشوائية
+                showRandomMotivationalQuote();
+                
+                // تحديث الإحصائيات
+                updateStats();
+                
+                // عرض الأهداف والمهام
+                renderGoals();
+                renderTasks();
+                
+                // تحديث قائمة الفلترة بالأهداف
+                updateGoalFilter();
+                
+                // جعل قائمة المهام قابلة للسحب والإفلات
+                new Sortable(todoContainer, {
+                    animation: 150,
+                    handle: '.drag-handle',
+                    onEnd: function() {
+                        // يمكنك حفظ الترتيب الجديد هنا إذا لزم الأمر
+                    }
+                });
+                
+                // التحقق من المهام التي عليها تذكير
+                checkForTaskReminders();
+                
+                // إضافة مستمع الأحداث العام لزر المتابعة
+                document.addEventListener('click', function(e) {
+                    if (e.target && e.target.id === 'closeCelebrationBtn') {
+                        const celebrationDiv = document.querySelector('.celebration');
+                        if (celebrationDiv) {
+                            celebrationDiv.classList.remove('show');
+                            setTimeout(() => {
+                                celebrationDiv.remove();
+                            }, 500);
+                        }
+                    }
+                });
+                
+                // تهيئة الشات بوت
+                initChatbot();
+                initAccessUi();
+                initAdminPanelUi();
+                const openAdmin = document.getElementById('openAdminPanelBtn');
+                if (openAdmin) {
+                    openAdmin.onclick = function() {
+                        openAdminPanel();
+                    };
+                }
+                // Bottom bar actions
+                const barAddGoal = document.getElementById('barAddGoal');
+                const barMyTasks = document.getElementById('barMyTasks');
+                const barAdmin = document.getElementById('barAdmin');
+                if (barAddGoal) barAddGoal.onclick = () => addGoalBtn.click();
+                if (barMyTasks) barMyTasks.onclick = () => {
+                    goalFilter.value = 'all';
+                    renderTasks();
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                };
+                if (barAdmin) barAdmin.onclick = () => openAdminPanel();
+                // FAB
+                const fab = document.getElementById('fabAdd');
+                if (fab) fab.onclick = () => addGoalBtn.click();
+            }
+            
+            // لا يوجد وضع أوفلاين بعد الآن
+            
+            // ربط شاشة تسجيل الدخول داخل نفس الملف
+            (function setupInlineAuth() {
+                if (!firebase || !firebase.auth) return;
+                const auth = firebase.auth();
+                const err = document.getElementById('authMsgError');
+                const ok = document.getElementById('authMsgSuccess');
+                function showErr(t){ if(!err) return; err.textContent=t; err.style.display='block'; if(ok) ok.style.display='none'; }
+                function showOk(t){ if(!ok) return; ok.textContent=t; ok.style.display='block'; if(err) err.style.display='none'; }
+                const loginBtn = document.getElementById('authLoginBtn');
+                const regBtn = document.getElementById('authRegisterBtn');
+                const gBtn = document.getElementById('authGoogleBtn');
+                if (loginBtn) loginBtn.addEventListener('click', function(){
+                    const email = (document.getElementById('authEmail')||{}).value || '';
+                    const password = (document.getElementById('authPassword')||{}).value || '';
+                    if (!email || !password) { showErr('فضلاً أدخل البريد وكلمة المرور'); return; }
+                    auth.signInWithEmailAndPassword(email.trim(), password).then(function(){ showOk('تم تسجيل الدخول'); }).catch(function(e){ showErr(mapAuthError(e)); });
+                });
+                if (regBtn) regBtn.addEventListener('click', function(){
+                    const email = (document.getElementById('authEmail')||{}).value || '';
+                    const password = (document.getElementById('authPassword')||{}).value || '';
+                    if (!email || !password) { showErr('فضلاً أدخل البريد وكلمة المرور (٨ أحرف على الأقل)'); return; }
+                    auth.createUserWithEmailAndPassword(email.trim(), password).then(function(){ showOk('تم إنشاء الحساب'); }).catch(function(e){ showErr(mapAuthError(e)); });
+                });
+                if (gBtn) gBtn.addEventListener('click', function(){
+                    const provider = new firebase.auth.GoogleAuthProvider();
+                    auth.signInWithPopup(provider).then(function(){ showOk('تم تسجيل الدخول عبر Google'); }).catch(function(e){ showErr(mapAuthError(e)); });
+                });
+                function mapAuthError(e) {
+                    var code = e && e.code ? e.code : '';
+                    switch (code) {
+                        case 'auth/invalid-email': return 'بريد إلكتروني غير صحيح';
+                        case 'auth/user-disabled': return 'تم إيقاف هذا الحساب';
+                        case 'auth/user-not-found': return 'لا يوجد مستخدم بهذا البريد';
+                        case 'auth/wrong-password': return 'كلمة المرور غير صحيحة';
+                        case 'auth/email-already-in-use': return 'هذا البريد مستخدم مسبقاً';
+                        case 'auth/weak-password': return 'كلمة المرور ضعيفة (٨ أحرف على الأقل)';
+                        case 'auth/popup-closed-by-user': return 'تم إغلاق نافذة Google قبل الإكمال';
+                        default: return (e && e.message) ? e.message : 'خطأ غير متوقع، حاول لاحقاً';
+                    }
+                }
+            })();
+            
+            // الاشتراك في الأهداف والمهام من Firestore
+            function attachDataListeners(user) {
+                if (!firebase.firestore) return;
+                const db = firebase.firestore();
+                // أهداف
+                if (unsubGoals) { try { unsubGoals(); } catch(_) {} }
+                if (window.isAdmin) {
+                    unsubGoals = db.collection('goals')
+                        .orderBy('createdAt', 'desc')
+                        .onSnapshot(function(snap){
+                            goals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            renderGoals();
+                            updateGoalFilter();
+                            attachTasksListener();
+                            updateStats();
+                        }, function(err){ console.error('goals listener', err); });
+                } else {
+                    // مستمعان: العام + المسند للمستخدم، مع دمج النتائج
+                    let assignedMap = {};
+                    let publicMap = {};
+                    function recomputeGoals() {
+                        const merged = new Map();
+                        Object.values(publicMap).forEach(g => merged.set(g.id, g));
+                        Object.values(assignedMap).forEach(g => merged.set(g.id, g));
+                        goals = Array.from(merged.values()).sort(function(a,b){
+                            const ad = a.createdAt && a.createdAt.toDate ? a.createdAt.toDate().getTime() : 0;
+                            const bd = b.createdAt && b.createdAt.toDate ? b.createdAt.toDate().getTime() : 0;
+                            return bd - ad;
+                        });
+                        renderGoals();
+                        updateGoalFilter();
+                        attachTasksListener();
+                        updateStats();
+                    }
+                    const unsubAssigned = db.collection('goals')
+                        .where('assignedUserIds', 'array-contains', user.uid)
+                        .onSnapshot(function(snap){
+                            assignedMap = {};
+                            snap.forEach(function(doc){
+                                assignedMap[doc.id] = { id: doc.id, ...doc.data() };
+                            });
+                            recomputeGoals();
+                        }, function(err){ console.error('goals listener (assigned)', err); });
+                    const unsubPublic = db.collection('goals')
+                        .where('visibility', '==', 'public')
+                        .onSnapshot(function(snap){
+                            publicMap = {};
+                            snap.forEach(function(doc){
+                                publicMap[doc.id] = { id: doc.id, ...doc.data() };
+                            });
+                            recomputeGoals();
+                        }, function(err){ console.error('goals listener (public)', err); });
+                    unsubGoals = function(){ unsubAssigned(); unsubPublic(); };
+                }
+            }
+            
+            function attachTasksListener() {
+                const db = firebase.firestore();
+                if (unsubTasks) unsubTasks();
+                if (window.isAdmin) {
+                    unsubTasks = db.collection('tasks')
+                        .orderBy('createdAt', 'desc')
+                        .onSnapshot(function(snap){
+                            tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            renderTasks();
+                            updateStats();
+                        }, function(err){ console.error('tasks listener', err); });
+                } else {
+                    unsubTasks = db.collection('tasks')
+                        .orderBy('createdAt', 'desc')
+                        .onSnapshot(function(snap){
+                            const goalIds = new Set(goals.map(g => g.id));
+                            tasks = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => goalIds.has(t.goalId));
+                            renderTasks();
+                            updateStats();
+                        }, function(err){ console.error('tasks listener', err); });
+                }
+            }
+            
+            // تهيئة الشات بوت
+            function initChatbot() {
+                // فتح/إغلاق نافذة الشات بوت
+                chatbotToggle.addEventListener('click', function() {
+                    chatbotWindow.style.display = chatbotWindow.style.display === 'flex' ? 'none' : 'flex';
+                    chatbotToggle.style.display = chatbotWindow.style.display === 'flex' ? 'none' : 'flex';
+                });
+                
+                chatbotClose.addEventListener('click', function() {
+                    chatbotWindow.style.display = 'none';
+                    chatbotToggle.style.display = 'flex';
+                });
+                
+                // إرسال رسالة عند الضغط على Enter
+                chatbotInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        sendMessage();
+                    }
+                });
+                
+                // إرسال رسالة عند النقر على زر الإرسال
+                sendMessageBtn.addEventListener('click', sendMessage);
+                
+                // إضافة مستمع للأزرار السريعة
+                quickActionBtns.forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const message = this.textContent;
+                        chatbotInput.value = message;
+                        sendMessage();
+                    });
+                });
+            }
+            
+            // إرسال رسالة في الشات بوت
+            function sendMessage() {
+                const message = chatbotInput.value.trim();
+                if (!message) return;
+                
+                // عرض رسالة المستخدم
+                addMessage(message, 'user');
+                chatbotInput.value = '';
+                
+                // معالجة الرسالة وإظهار الرد
+                setTimeout(() => {
+                    const response = getBotResponse(message);
+                    addMessage(response.text, 'bot', response.quickActions);
+                }, 500);
+            }
+            
+            // إضافة رسالة إلى الشات بوت
+            function addMessage(text, sender, quickActions = null) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}-message`;
+                messageDiv.textContent = text;
+                
+                if (quickActions) {
+                    const quickActionsDiv = document.createElement('div');
+                    quickActionsDiv.className = 'quick-actions';
+                    
+                    quickActions.forEach(action => {
+                        const actionBtn = document.createElement('button');
+                        actionBtn.className = 'quick-action-btn';
+                        actionBtn.textContent = action;
+                        actionBtn.addEventListener('click', function() {
+                            chatbotInput.value = action;
+                            sendMessage();
+                        });
+                        quickActionsDiv.appendChild(actionBtn);
+                    });
+                    
+                    messageDiv.appendChild(quickActionsDiv);
+                }
+                
+                chatbotMessages.appendChild(messageDiv);
+                chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+            }
+            
+            // الحصول على رد الشات بوت
+            function getBotResponse(message) {
+                const lowerMessage = message.toLowerCase();
+                
+                if (lowerMessage.includes('هدف') || lowerMessage.includes('أضف هدف') || lowerMessage.includes('كيف أضيف هدف')) {
+                    return {
+                        text: "لإضافة هدف جديد:\n1. اضغط على زر 'إضافة هدف جديد' في قسم الأهداف\n2. املأ معلومات الهدف (الاسم، تاريخ البداية والنهاية)\n3. اضغط على 'حفظ الهدف'",
+                        quickActions: ["كيف أضيف مهمة؟", "ما هي مهامي القادمة؟", "كيف أعدل هدف؟"]
+                    };
+                } else if (lowerMessage.includes('مهمة') || lowerMessage.includes('أضف مهمة') || lowerMessage.includes('كيف أضيف مهمة')) {
+                    return {
+                        text: "لإضافة مهمة جديدة:\n1. اختر الهدف من القائمة\n2. اضغط على زر 'إضافة مهمة' في بطاقة الهدف\n3. املأ معلومات المهمة (الاسم، موعد الإنجاز)\n4. اضغط على 'حفظ المهمة'",
+                        quickActions: ["كيف أضيف هدف؟", "كيف أحدد موعد للمهمة؟", "كيف أعدل مهمة؟"]
+                    };
+                } else if (lowerMessage.includes('تعديل') || lowerMessage.includes('عدل') || lowerMessage.includes('تغيير')) {
+                    if (lowerMessage.includes('هدف')) {
+                        return {
+                            text: "لتعديل هدف:\n1. اضغط على زر 'تعديل' في بطاقة الهدف\n2. قم بالتعديلات المطلوبة\n3. اضغط على 'حفظ التعديلات'",
+                            quickActions: ["كيف أضيف هدف؟", "كيف أضيف مهمة؟", "كيف أحذف هدف؟"]
+                        };
+                    } else if (lowerMessage.includes('مهمة')) {
+                        return {
+                            text: "لتعديل مهمة:\n1. اضغط على زر التعديل (أيقونة القلم) بجوار المهمة\n2. قم بالتعديلات المطلوبة\n3. اضغط على 'حفظ المهمة'",
+                            quickActions: ["كيف أضيف مهمة؟", "كيف أحذف مهمة؟", "كيف أحدد موعد للمهمة؟"]
+                        };
+                    }
+                } else if (lowerMessage.includes('حذف') || lowerMessage.includes('مسح')) {
+                    if (lowerMessage.includes('هدف')) {
+                        return {
+                            text: "لحذف هدف:\n1. اضغط على زر 'حذف' في بطاقة الهدف\n2. تأكيد الحذف\nملاحظة: سيتم حذف جميع المهام المرتبطة بهذا الهدف أيضاً",
+                            quickActions: ["كيف أضيف هدف؟", "كيف أعدل هدف؟", "كيف أحذف مهمة؟"]
+                        };
+                    } else if (lowerMessage.includes('مهمة')) {
+                        return {
+                            text: "لحذف مهمة:\n1. اضغط على زر الحذف (أيقونة السلة) بجوار المهمة\n2. تأكيد الحذف",
+                            quickActions: ["كيف أضيف مهمة؟", "كيف أعدل مهمة؟", "كيف أضيف هدف؟"]
+                        };
+                    }
+                } else if (lowerMessage.includes('مهام') || lowerMessage.includes('قادم') || lowerMessage.includes('القادمة')) {
+                    const upcomingTasks = getUpcomingTasks();
+                    if (upcomingTasks.length > 0) {
+                        let responseText = "المهام القادمة:\n";
+                        upcomingTasks.forEach(task => {
+                            const goal = goals.find(g => g.id === task.goalId);
+                            const goalName = goal ? goal.name : "هدف غير معروف";
+                            responseText += `- ${task.name} (${formatDate(task.dueDate)}) - ${goalName}\n`;
+                        });
+                        return {
+                            text: responseText,
+                            quickActions: ["كيف أضيف مهمة؟", "كيف أعدل مهمة؟", "كيف أحذف مهمة؟"]
+                        };
+                    } else {
+                        return {
+                            text: "لا توجد مهام قادمة في الأيام القليلة المقبلة.",
+                            quickActions: ["كيف أضيف مهمة؟", "كيف أضيف هدف؟", "ما هي الأهداف المكتملة؟"]
+                        };
+                    }
+                } else if (lowerMessage.includes('إحصاء') || lowerMessage.includes('إحصائيات') || lowerMessage.includes('تقدم')) {
+                    updateStats();
+                    return {
+                        text: `إحصائياتك الحالية:\n- الأهداف المكتملة: ${completedGoalsElement.textContent}\n- المهام المكتملة: ${completedTasksElement.textContent}\n- نسبة التقدم العامة: ${overallProgressElement.textContent}`,
+                        quickActions: ["كيف أضيف هدف؟", "كيف أضيف مهمة؟", "ما هي مهامي القادمة؟"]
+                    };
+                } else if (lowerMessage.includes('مساعدة') || lowerMessage.includes('مساعده') || lowerMessage.includes('مساعدة')) {
+                    return {
+                        text: "كيف يمكنني مساعدتك؟\nيمكنك طرح الأسئلة حول:\n- إضافة/تعديل/حذف الأهداف\n- إضافة/تعديل/حذف المهام\n- عرض الإحصائيات والتقدم\n- عرض المهام القادمة",
+                        quickActions: ["كيف أضيف هدف جديد؟", "كيف أضيف مهمة؟", "ما هي مهامي القادمة؟"]
+                    };
+                } else {
+                    return {
+                        text: "لم أفهم سؤالك. يمكنك طرح أسئلة حول:\n- إدارة الأهداف والمهام\n- تتبع التقدم\n- عرض الإحصائيات\nجرب كتابة 'مساعدة' لرؤية الخيارات المتاحة.",
+                        quickActions: ["مساعدة", "كيف أضيف هدف جديد؟", "كيف أضيف مهمة؟"]
+                    };
+                }
+            }
+            
+            // الحصول على المهام القادمة
+            function getUpcomingTasks() {
+                const today = new Date();
+                const nextWeek = new Date();
+                nextWeek.setDate(today.getDate() + 7);
+                
+                return tasks.filter(task => {
+                    if (!task.dueDate || task.completed) return false;
+                    
+                    const dueDate = new Date(task.dueDate);
+                    return dueDate >= today && dueDate <= nextWeek;
+                }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+            }
+            
+            // عرض عبارة تحفيزية عشوائية
+            function showRandomMotivationalQuote() {
+                const el = document.getElementById('motivationalQuote');
+                if (!el) return;
+                const randomIndex = Math.floor(Math.random() * motivationalQuotes.length);
+                el.textContent = motivationalQuotes[randomIndex];
+                // تغيير العبارة كل 30 ثانية إن كان العنصر لا يزال موجوداً
+                setInterval(() => {
+                    const target = document.getElementById('motivationalQuote');
+                    if (!target) return;
+                    const newIndex = Math.floor(Math.random() * motivationalQuotes.length);
+                    target.textContent = motivationalQuotes[newIndex];
+                }, 30000);
+            }
+            
+            // تبديل الوضع الليلي
+            darkModeToggle.addEventListener('change', function() {
+                toggleDarkMode(this.checked);
+                localStorage.setItem('darkMode', this.checked);
+            });
+            
+            function toggleDarkMode(enable) {
+                document.documentElement.setAttribute('data-theme', enable ? 'dark' : 'light');
+            }
+            
+            // فتح وإغلاق Modal الهدف
+            addGoalBtn.addEventListener('click', function() {
+                goalModal.style.display = 'block';
+            });
+            
+            document.querySelectorAll('.close').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    goalModal.style.display = 'none';
+                    editGoalModal.style.display = 'none';
+                    taskModal.style.display = 'none';
+                });
+            });
+            
+            window.addEventListener('click', function(event) {
+                if (event.target === goalModal) {
+                    goalModal.style.display = 'none';
+                }
+                if (event.target === editGoalModal) {
+                    editGoalModal.style.display = 'none';
+                }
+                if (event.target === taskModal) {
+                    taskModal.style.display = 'none';
+                }
+            });
+            
+            // حفظ الهدف الجديد (Firestore)
+            goalForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const goalName = document.getElementById('goalName').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const goalNote = document.getElementById('goalNote').value;
+                const u = (firebase.auth && firebase.auth().currentUser) ? firebase.auth().currentUser : null;
+                if (!u) { alert('الرجاء تسجيل الدخول'); return; }
+                const db = firebase.firestore();
+                const newGoal = {
+                    name: goalName,
+                    startDate: startDate,
+                    endDate: endDate,
+                    note: goalNote,
+                    progress: 0,
+                    createdBy: u.uid,
+                    createdByEmail: u.email || '',
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    assignedUserIds: [u.uid],
+                    visibility: 'private',
+                    visibilityMode: 'private',
+                    blockedUserIds: []
+                };
+                db.collection('goals').add(newGoal).then(function(docRef){
+                    logActivity('create','goal', docRef.id, { name: goalName });
+                }).catch(function(err){
+                    console.error('add goal error', err);
+                    alert('تعذر حفظ الهدف');
+                });
+                
+                goalForm.reset();
+                goalModal.style.display = 'none';
+            });
+            
+            // حفظ المهمة الجديدة (Firestore)
+            taskForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const taskName = document.getElementById('taskName').value;
+                const taskDueDate = document.getElementById('taskDueDate').value;
+                const goalId = document.getElementById('taskGoalId').value;
+                const assigneeUid = document.getElementById('assigneeSelect').value || null;
+                const u = (firebase.auth && firebase.auth().currentUser) ? firebase.auth().currentUser : null;
+                if (!u) { alert('الرجاء تسجيل الدخول'); return; }
+                const db = firebase.firestore();
+                const newTask = {
+                    name: taskName,
+                    dueDate: taskDueDate || null,
+                    goalId: goalId,
+                    completed: false,
+                    createdBy: u.uid,
+                    createdByEmail: u.email || '',
+                    assignedToUid: assigneeUid,
+                    assignedToEmail: null, // سنملؤها لاحقاً إن توفرت
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                // لو تم اختيار مكلّف، اجلب بريده لإظهاره بسرعة
+                (assigneeUid ? loadUsersByUids([assigneeUid]) : Promise.resolve([])).then(function(users){
+                    if (users && users[0]) {
+                        newTask.assignedToEmail = users[0].email || null;
+                    }
+                }).finally(function(){
+                    db.collection('tasks').add(newTask).then(function(docRef){
+                    logActivity('create','task', docRef.id, { name: taskName, goalId: goalId });
+                    updateGoalProgress(goalId);
+                }).catch(function(err){
+                    console.error('add task error', err);
+                    alert('تعذر حفظ المهمة');
+                });
+                });
+                
+                taskForm.reset();
+                taskModal.style.display = 'none';
+            });
+            
+            // تعديل الهدف
+            editGoalForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const goalId = document.getElementById('editGoalId').value;
+                const goalName = document.getElementById('editGoalName').value;
+                const startDate = document.getElementById('editStartDate').value;
+                const endDate = document.getElementById('editEndDate').value;
+                const goalNote = document.getElementById('editGoalNote').value;
+                const db = firebase.firestore();
+                db.collection('goals').doc(goalId).update({
+                    name: goalName,
+                    startDate: startDate,
+                    endDate: endDate,
+                    note: goalNote,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }).then(function(){
+                    logActivity('update','goal', goalId, { name: goalName });
+                    editGoalForm.reset();
+                    editGoalModal.style.display = 'none';
+                }).catch(function(err){
+                    console.error('update goal error', err);
+                    alert('تعذر تحديث الهدف');
+                });
+            });
+            
+            // فلترة المهام حسب الهدف
+            goalFilter.addEventListener('change', function() {
+                renderTasks();
+            });
+            
+            // عرض الأهداف
+            function renderGoals() {
+                goalsContainer.innerHTML = '';
+                
+                if (goals.length === 0) {
+                    goalsContainer.innerHTML = '<p class="no-goals">لا توجد أهداف مضافّة بعد. اضغط على زر "إضافة هدف جديد" لبدء رحلتك!</p>';
+                    return;
+                }
+                
+                goals.forEach(goal => {
+                    const goalCard = document.createElement('div');
+                    goalCard.className = 'goal-card';
+                    goalCard.dataset.goalId = goal.id;
+                    
+                    const daysLeft = calculateDaysLeft(goal.endDate);
+                    const progressPercentage = goal.progress || 0;
+                    
+                    goalCard.innerHTML = `
+                        <h3>${goal.name}</h3>
+                        <div class="goal-dates">
+                            <span>بداية: ${formatDate(goal.startDate)}</span>
+                            <span>نهاية: ${formatDate(goal.endDate)}</span>
+                        </div>
+                        ${goal.note ? `<div class="goal-note">${goal.note}</div>` : ''}
+                        <div class="goal-note" style="display:none" data-details="true">
+                            <div>أنشئ بواسطة: ${goal.createdByEmail || 'غير معروف'}</div>
+                            <div>تاريخ الإنشاء: ${goal.createdAt && goal.createdAt.toDate ? formatDateTime(goal.createdAt.toDate()) : '-'}</div>
+                            <div>آخر تحديث: ${goal.updatedAt && goal.updatedAt.toDate ? formatDateTime(goal.updatedAt.toDate()) : '-'}</div>
+                            <div>الرؤية: ${goal.visibility === 'public' ? 'عام' : 'خاص'}</div>
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-label">
+                                <span>التقدم</span>
+                                <span>${progressPercentage}%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${progressPercentage}%"></div>
+                            </div>
+                        </div>
+                        <div class="goal-actions">
+                            <button class="action-btn add-task-btn" data-goal-id="${goal.id}">
+                                <i class="fas fa-plus"></i> إضافة مهمة
+                            </button>
+                            <button class="action-btn view-details-btn" data-goal-id="${goal.id}">
+                                <i class="fas fa-info-circle"></i> تفاصيل
+                            </button>
+                            <button class="action-btn view-tasks-btn" data-goal-id="${goal.id}">
+                                <i class="fas fa-tasks"></i> عرض المهام
+                            </button>
+                            <button class="action-btn edit-goal-btn" data-goal-id="${goal.id}">
+                                <i class="fas fa-edit"></i> تعديل
+                            </button>
+                            <button class="action-btn delete-goal-btn" data-goal-id="${goal.id}">
+                                <i class="fas fa-trash"></i> حذف
+                            </button>
+                            ${window.isAdmin ? `<button class="action-btn access-goal-btn" data-goal-id="${goal.id}"><i class="fas fa-user-shield"></i> إدارة الوصول</button>` : ''}
+                        </div>
+                        ${daysLeft <= 3 ? `<div class="urgent-badge">موعد قريب!</div>` : ''}
+                    `;
+                    
+                    goalsContainer.appendChild(goalCard);
+                });
+                
+                // إضافة مستمعي الأحداث للأزرار
+                document.querySelectorAll('.add-task-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const goalId = this.dataset.goalId;
+                        document.getElementById('taskGoalId').value = goalId;
+                        populateAssigneesForGoal(goalId);
+                        taskModal.style.display = 'block';
+                    });
+                });
+                
+                document.querySelectorAll('.view-tasks-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const goalId = this.dataset.goalId;
+                        goalFilter.value = goalId;
+                        renderTasks();
+                    });
+                });
+                
+                document.querySelectorAll('.edit-goal-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const goalId = this.dataset.goalId;
+                        editGoal(goalId);
+                    });
+                });
+                
+                document.querySelectorAll('.delete-goal-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const goalId = this.dataset.goalId;
+                        deleteGoal(goalId);
+                    });
+                });
+                
+                document.querySelectorAll('.view-details-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const card = this.closest('.goal-card');
+                        const details = card.querySelector('[data-details="true"]');
+                        if (details) {
+                            details.style.display = details.style.display === 'none' ? 'block' : 'none';
+                        }
+                    });
+                });
+                
+                if (window.isAdmin) {
+                    document.querySelectorAll('.access-goal-btn').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const goalId = this.dataset.goalId;
+                            manageGoalAccess(goalId);
+                        });
+                    });
+                }
+            }
+            
+            // إدارة الوصول (أدمن فقط) - فتح المودال وتعبئة البيانات
+            function manageGoalAccess(goalId) {
+                const modal = document.getElementById('accessModal');
+                if (!modal) return;
+                document.getElementById('accessGoalId').value = goalId;
+                populateUsersChecklist().then(function(){
+                    const g = goals.find(g => g.id === goalId) || {};
+                    const modeEl = document.getElementById('visibilityMode');
+                    if (modeEl) modeEl.value = g.visibilityMode || (g.visibility === 'public' ? 'public' : 'private');
+                    const selectedAllow = new Set(Array.isArray(g.assignedUserIds) ? g.assignedUserIds : []);
+                    const selectedDeny = new Set(Array.isArray(g.blockedUserIds) ? g.blockedUserIds : []);
+                    const list = document.getElementById('usersChecklist');
+                    if (list) {
+                        list.querySelectorAll('input[type="checkbox"][data-uid]').forEach(function(cb){
+                            const uid = cb.getAttribute('data-uid');
+                            cb.checked = selectedAllow.has(uid) || selectedDeny.has(uid);
+                        });
+                    }
+                    toggleUsersChecklistVisibility();
+                    modal.style.display = 'block';
+                });
+            }
+            
+            // تهيئة واجهة إدارة الوصول
+            function initAccessUi() {
+                const accessModal = document.getElementById('accessModal');
+                if (!accessModal) return;
+                accessModal.querySelectorAll('.close').forEach(function(c){
+                    c.addEventListener('click', function(){ accessModal.style.display = 'none'; });
+                });
+                window.addEventListener('click', function(ev){
+                    if (ev.target === accessModal) accessModal.style.display = 'none';
+                });
+                const visibilityMode = document.getElementById('visibilityMode');
+                if (visibilityMode) visibilityMode.addEventListener('change', toggleUsersChecklistVisibility);
+                const saveBtn = document.getElementById('saveAccessBtn');
+                if (saveBtn) saveBtn.addEventListener('click', saveAccessSettings);
+            }
+            
+            function toggleUsersChecklistVisibility() {
+                const visibilityMode = document.getElementById('visibilityMode');
+                const usersContainer = document.getElementById('usersListContainer');
+                if (!visibilityMode || !usersContainer) return;
+                const mode = visibilityMode.value;
+                usersContainer.style.display = (mode === 'allowlist' || mode === 'denylist' || mode === 'private') ? 'block' : 'none';
+            }
+            
+            let cachedUsers = null;
+            function populateUsersChecklist() {
+                const list = document.getElementById('usersChecklist');
+                if (!list) return Promise.resolve();
+                if (cachedUsers) {
+                    renderUsersChecklist(list, cachedUsers);
+                    return Promise.resolve();
+                }
+                const db = firebase.firestore();
+                return db.collection('userProfiles').orderBy('email').get().then(function(snap){
+                    const arr = [];
+                    snap.forEach(function(doc){
+                        const d = doc.data() || {};
+                        arr.push({ uid: doc.id, email: d.email || '', role: d.role || 'user' });
+                    });
+                    cachedUsers = arr;
+                    renderUsersChecklist(list, arr);
+                });
+            }
+            
+            // إحضار مستخدمين محددين عبر UIDs لاستخدامها في اختيار المكلّف بالمهمة
+            function loadUsersByUids(uids) {
+                if (!uids || uids.length === 0) return Promise.resolve([]);
+                const db = firebase.firestore();
+                // Firestore يسمح بـ 'in' حتى 10 عناصر؛ نقسم إن لزم
+                const chunks = [];
+                for (let i = 0; i < uids.length; i += 10) chunks.push(uids.slice(i, i + 10));
+                const promises = chunks.map(c => db.collection('userProfiles').where(firebase.firestore.FieldPath.documentId(), 'in', c).get());
+                return Promise.all(promises).then(snapshots => {
+                    const users = [];
+                    snapshots.forEach(snap => {
+                        snap.forEach(doc => {
+                            const d = doc.data() || {};
+                            users.push({ uid: doc.id, email: d.email || '' });
+                        });
+                    });
+                    // إزالة التكرارات
+                    const map = new Map();
+                    users.forEach(u => map.set(u.uid, u));
+                    return Array.from(map.values());
+                });
+            }
+            
+            // تعبئة قائمة المكلّف للمهمة حسب مستخدمي الهدف
+            function populateAssigneesForGoal(goalId) {
+                const sel = document.getElementById('assigneeSelect');
+                if (!sel) return;
+                sel.innerHTML = '<option value="">— اختر مستخدماً —</option>';
+                const goal = goals.find(g => g.id === goalId);
+                const u = (firebase.auth && firebase.auth().currentUser) ? firebase.auth().currentUser : null;
+                const assigned = (goal && Array.isArray(goal.assignedUserIds)) ? goal.assignedUserIds : (u ? [u.uid] : []);
+                loadUsersByUids(assigned).then(users => {
+                    users.forEach(uinfo => {
+                        const opt = document.createElement('option');
+                        opt.value = uinfo.uid;
+                        opt.textContent = uinfo.email || uinfo.uid;
+                        sel.appendChild(opt);
+                    });
+                });
+            }
+            
+            function renderUsersChecklist(container, users) {
+                container.innerHTML = '';
+                users.forEach(function(u){
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.justifyContent = 'space-between';
+                    row.style.padding = '6px 4px';
+                    const left = document.createElement('div');
+                    left.style.display = 'flex';
+                    left.style.alignItems = 'center';
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.setAttribute('data-uid', u.uid);
+                    cb.style.marginLeft = '8px';
+                    const label = document.createElement('span');
+                    label.textContent = (u.email || u.uid) + (u.role === 'admin' ? ' (أدمن)' : '');
+                    left.appendChild(cb);
+                    left.appendChild(label);
+                    row.appendChild(left);
+                    container.appendChild(row);
+                });
+            }
+            
+            function saveAccessSettings() {
+                const goalId = document.getElementById('accessGoalId').value;
+                const mode = document.getElementById('visibilityMode').value;
+                const db = firebase.firestore();
+                const list = document.getElementById('usersChecklist');
+                const checkedUids = [];
+                if (list) {
+                    list.querySelectorAll('input[type="checkbox"][data-uid]').forEach(function(cb){
+                        if (cb.checked) checkedUids.push(cb.getAttribute('data-uid'));
+                    });
+                }
+                const update = {
+                    visibility: mode === 'public' ? 'public' : 'private',
+                    visibilityMode: mode,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                if (mode === 'allowlist' || mode === 'private') {
+                    update.assignedUserIds = checkedUids;
+                    update.blockedUserIds = [];
+                } else if (mode === 'denylist') {
+                    update.blockedUserIds = checkedUids;
+                } else if (mode === 'public') {
+                    update.assignedUserIds = [];
+                    update.blockedUserIds = [];
+                }
+                db.collection('goals').doc(goalId).update(update).then(function(){
+                    logActivity('update','goal', goalId, { visibilityMode: mode });
+                    const accessModal = document.getElementById('accessModal');
+                    if (accessModal) accessModal.style.display = 'none';
+                }).catch(function(err){
+                    console.error('save access error', err);
+                    alert('تعذر حفظ الإعدادات');
+                });
+            }
+            
+            // لوحة الإدارة: إدارة أدوار المستخدمين
+            function initAdminPanelUi() {
+                const panel = document.getElementById('adminPanelModal');
+                if (!panel) return;
+                panel.querySelectorAll('.close').forEach(function(c){
+                    c.addEventListener('click', function(){ panel.style.display = 'none'; });
+                });
+                window.addEventListener('click', function(ev){
+                    if (ev.target === panel) panel.style.display = 'none';
+                });
+            }
+            
+            function openAdminPanel() {
+                const panel = document.getElementById('adminPanelModal');
+                if (!panel) return;
+                const table = document.getElementById('usersTable');
+                table.innerHTML = '...';
+                const db = firebase.firestore();
+                db.collection('userProfiles').orderBy('email').get().then(function(snap){
+                    const rows = [];
+                    snap.forEach(function(doc){
+                        const d = doc.data() || {};
+                        const uid = doc.id;
+                        const email = d.email || '';
+                        const role = d.role || 'user';
+                        rows.push({ uid, email, role });
+                    });
+                    renderUsersTable(rows);
+                    panel.style.display = 'block';
+                }).catch(function(err){
+                    console.error('load users error', err);
+                    table.innerHTML = 'تعذر تحميل المستخدمين';
+                    panel.style.display = 'block';
+                });
+            }
+            
+            function renderUsersTable(rows) {
+                const table = document.getElementById('usersTable');
+                table.innerHTML = '';
+                rows.forEach(function(r){
+                    const line = document.createElement('div');
+                    line.style.display = 'flex';
+                    line.style.alignItems = 'center';
+                    line.style.justifyContent = 'space-between';
+                    line.style.padding = '8px 4px';
+                    line.style.borderBottom = '1px solid var(--border-color)';
+                    const label = document.createElement('div');
+                    label.textContent = (r.email || r.uid) + (r.role === 'admin' ? ' (أدمن)' : '');
+                    const actions = document.createElement('div');
+                    const makeAdminBtn = document.createElement('button');
+                    makeAdminBtn.className = 'btn-primary';
+                    makeAdminBtn.style.marginRight = '8px';
+                    makeAdminBtn.textContent = r.role === 'admin' ? 'جعله مستخدم' : 'ترقيته أدمن';
+                    makeAdminBtn.onclick = function(){
+                        const newRole = r.role === 'admin' ? 'user' : 'admin';
+                        const db = firebase.firestore();
+                        db.collection('userProfiles').doc(r.uid).update({ role: newRole }).then(function(){
+                            r.role = newRole;
+                            renderUsersTable(rows);
+                            logActivity('update','user', r.uid, { role: newRole });
+                        }).catch(function(err){
+                            console.error('update role error', err);
+                            alert('تعذر تحديث الدور');
+                        });
+                    };
+                    actions.appendChild(makeAdminBtn);
+                    line.appendChild(label);
+                    line.appendChild(actions);
+                    table.appendChild(line);
+                });
+            }
+            
+            // تعديل الهدف
+            function editGoal(goalId) {
+                const goal = goals.find(g => g.id === goalId);
+                if (!goal) return;
+                
+                document.getElementById('editGoalId').value = goal.id;
+                document.getElementById('editGoalName').value = goal.name;
+                document.getElementById('editStartDate').value = goal.startDate;
+                document.getElementById('editEndDate').value = goal.endDate;
+                document.getElementById('editGoalNote').value = goal.note || '';
+                
+                editGoalModal.style.display = 'block';
+            }
+            
+            // حذف الهدف
+            function deleteGoal(goalId) {
+                if (confirm('هل أنت متأكد من حذف هذا الهدف؟ سيتم حذف جميع المهام المرتبطة به أيضًا.')) {
+                    const db = firebase.firestore();
+                    db.collection('tasks').where('goalId', '==', goalId).get().then(function(snap){
+                        const batch = db.batch();
+                        snap.forEach(function(doc){ batch.delete(doc.ref); });
+                        return batch.commit();
+                    }).then(function(){
+                        return db.collection('goals').doc(goalId).delete();
+                    }).then(function(){
+                        logActivity('delete','goal', goalId, {});
+                    }).catch(function(err){
+                        console.error('delete goal error', err);
+                        alert('تعذر حذف الهدف');
+                    });
+                }
+            }
+            
+            // عرض المهام
+            function renderTasks() {
+                todoContainer.innerHTML = '';
+                
+                const selectedGoalId = goalFilter.value;
+                let filteredTasks = tasks;
+                
+                if (selectedGoalId !== 'all') {
+                    filteredTasks = tasks.filter(task => task.goalId === selectedGoalId);
+                }
+                
+                if (filteredTasks.length === 0) {
+                    const noTasksMsg = selectedGoalId === 'all' 
+                        ? 'لا توجد مهام مضافّة بعد. اضغط على "إضافة مهمة" في أي هدف لبدء التخطيط!' 
+                        : 'لا توجد مهام لهذا الهدف بعد. اضغط على "إضافة مهمة" لبدء التخطيط!';
+                    
+                    todoContainer.innerHTML = `<p class="no-tasks">${noTasksMsg}</p>`;
+                    return;
+                }
+                
+                filteredTasks.forEach(task => {
+                    const taskItem = document.createElement('div');
+                    taskItem.className = 'todo-item';
+                    taskItem.dataset.taskId = task.id;
+                    
+                    const goal = goals.find(g => g.id === task.goalId);
+                    const goalName = goal ? goal.name : 'هدف غير معروف';
+                    
+                    taskItem.innerHTML = `
+                        <span class="drag-handle" title="سحب"><i class="fas fa-grip-lines"></i></span>
+                        <input type="checkbox" class="todo-checkbox" ${task.completed ? 'checked' : ''}>
+                        <span class="todo-text ${task.completed ? 'completed' : ''}">${task.name}</span>
+                        ${task.dueDate ? `<span class="todo-due-date">${formatDate(task.dueDate)}</span>` : ''}
+                        <div class="todo-actions">
+                            <button class="edit-task-btn" data-task-id="${task.id}">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="delete-task-btn" data-task-id="${task.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        <span class="goal-badge">${goalName}</span>
+                        ${task.assignedToEmail ? `<span class="goal-badge" title="المكلّف">${task.assignedToEmail}</span>` : ''}
+                        <div class="goal-note" style="display:none" data-task-details="true">
+                            <div>أنشئ بواسطة: ${task.createdByEmail || 'غير معروف'}</div>
+                            <div>تاريخ الإنشاء: ${task.createdAt && task.createdAt.toDate ? formatDateTime(task.createdAt.toDate()) : '-'}</div>
+                            <div>آخر تحديث: ${task.updatedAt && task.updatedAt.toDate ? formatDateTime(task.updatedAt.toDate()) : '-'}</div>
+                            ${task.assignedToEmail ? `<div>مكلّف إلى: ${task.assignedToEmail}</div>` : ''}
+                        </div>
+                        <button class="action-btn" style="margin-right:8px" data-toggle-task-details="${task.id}">
+                            <i class="fas fa-info-circle"></i> تفاصيل
+                        </button>
+                    `;
+                    
+                    todoContainer.appendChild(taskItem);
+                });
+                
+                document.querySelectorAll('[data-toggle-task-details]').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const holder = this.closest('.todo-item').querySelector('[data-task-details="true"]');
+                        if (holder) {
+                            holder.style.display = holder.style.display === 'none' ? 'block' : 'none';
+                        }
+                    });
+                });
+                
+                // إضافة مستمعي الأحداث للأزرار
+                document.querySelectorAll('.todo-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', function() {
+                        const taskId = this.closest('.todo-item').dataset.taskId;
+                        const task = tasks.find(t => t.id === taskId);
+                        
+                        if (task) {
+                            const db = firebase.firestore();
+                            db.collection('tasks').doc(task.id).update({
+                                completed: this.checked,
+                                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                            }).then(function(){
+                                logActivity('update','task', task.id, { completed: !!this.checked, goalId: task.goalId });
+                                if (task.goalId) updateGoalProgress(task.goalId);
+                                if (this.checked) showCompletionMessage();
+                            }.bind(this)).catch(function(err){
+                                console.error('toggle task error', err);
+                            });
+                        }
+                    });
+                });
+                
+                document.querySelectorAll('.edit-task-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const taskId = this.dataset.taskId;
+                        editTask(taskId);
+                    });
+                });
+                
+                document.querySelectorAll('.delete-task-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const taskId = this.dataset.taskId;
+                        deleteTask(taskId);
+                    });
+                });
+            }
+            
+            // تعديل المهمة
+            function editTask(taskId) {
+                const task = tasks.find(t => t.id === taskId);
+                if (!task) return;
+                
+                document.getElementById('taskName').value = task.name;
+                document.getElementById('taskDueDate').value = task.dueDate || '';
+                document.getElementById('taskGoalId').value = task.goalId;
+                
+                taskModal.style.display = 'block';
+                
+                // حذف المهمة القديمة عند حفظ التعديلات
+                taskForm.onsubmit = function(e) {
+                    e.preventDefault();
+                    
+                    const taskIndex = tasks.findIndex(t => t.id === taskId);
+                    if (taskIndex !== -1) {
+                        tasks.splice(taskIndex, 1);
+                    }
+                    
+                    taskForm.onsubmit = null;
+                    taskForm.dispatchEvent(new Event('submit'));
+                };
+            }
+            
+            // حذف المهمة
+            function deleteTask(taskId) {
+                if (confirm('هل أنت متأكد من حذف هذه المهمة؟')) {
+                    const taskIndex = tasks.findIndex(t => t.id === taskId);
+                    if (taskIndex !== -1) {
+                        const task = tasks[taskIndex];
+                        const db = firebase.firestore();
+                        db.collection('tasks').doc(taskId).delete().then(function(){
+                            logActivity('delete','task', taskId, { goalId: task.goalId });
+                            if (task.goalId) updateGoalProgress(task.goalId);
+                        }).catch(function(err){
+                            console.error('delete task error', err);
+                            alert('تعذر حذف المهمة');
+                        });
+                    }
+                }
+            }
+            
+            // تحديث تقدم الهدف
+            function updateGoalProgress(goalId) {
+                const goalTasks = tasks.filter(task => task.goalId === goalId);
+                
+                if (goalTasks.length === 0) {
+                    return;
+                }
+                
+                const completedTasks = goalTasks.filter(task => task.completed).length;
+                const progress = Math.round((completedTasks / goalTasks.length) * 100);
+                const db = firebase.firestore();
+                db.collection('goals').doc(goalId).update({
+                    progress: progress,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }).then(function(){
+                    logActivity('update','goal', goalId, { progress: progress });
+                    const goal = goals.find(g => g.id === goalId);
+                    if (goal && progress === 100) {
+                        showGoalCompletionMessage(goal.name);
+                    }
+                }).catch(function(err){
+                    console.error('update progress error', err);
+                });
+            }
+            
+            // عرض رسالة إنجاز عند إكمال هدف
+            function showGoalCompletionMessage(goalName) {
+                const celebrationDiv = document.createElement('div');
+                celebrationDiv.className = 'celebration';
+                celebrationDiv.innerHTML = `
+                    <div class="celebration-content">
+                        <h2>تهانينا! 🎉</h2>
+                        <p>لقد أكملت هدفك "${goalName}" بنجاح!</p>
+                        <p>استمر في التقدم ولا تتوقف!</p>
+                        <button class="btn-primary" id="closeCelebrationBtn">متابعة</button>
+                    </div>
+                `;
+                
+                document.body.appendChild(celebrationDiv);
+                
+                setTimeout(() => {
+                    celebrationDiv.classList.add('show');
+                }, 100);
+            }
+            
+            // تحديث قائمة فلترة الأهداف
+            function updateGoalFilter() {
+                goalFilter.innerHTML = '<option value="all">كل الأهداف</option>';
+                
+                goals.forEach(goal => {
+                    const option = document.createElement('option');
+                    option.value = goal.id;
+                    option.textContent = goal.name;
+                    goalFilter.appendChild(option);
+                });
+            }
+            
+            // تحديث الإحصائيات
+            function updateStats() {
+                // عدد الأهداف المكتملة
+                const completedGoalsCount = goals.filter(goal => goal.progress === 100).length;
+                completedGoalsElement.textContent = completedGoalsCount;
+                
+                // عدد المهام المكتملة
+                const completedTasksCount = tasks.filter(task => task.completed).length;
+                completedTasksElement.textContent = completedTasksCount;
+                
+                // نسبة التقدم العامة
+                const totalTasks = tasks.length;
+                const overallProgress = totalTasks > 0 
+                    ? Math.round((completedTasksCount / totalTasks) * 100) 
+                    : 0;
+                overallProgressElement.textContent = `${overallProgress}%`;
+            }
+            
+            // عرض رسالة إنجاز عند إكمال مهمة
+            function showCompletionMessage() {
+                const randomIndex = Math.floor(Math.random() * completionMessages.length);
+                const message = completionMessages[randomIndex];
+                
+                // يمكنك هنا إضافة تأثير مرئي أو عرض إشعار
+                alert(message); // يمكن استبدال هذا ب modal أجمل
+            }
+            
+            // التحقق من المهام التي عليها تذكير
+            function checkForTaskReminders() {
+                const now = new Date();
+                const today = now.toISOString().split('T')[0];
+                
+                tasks.forEach(task => {
+                    if (task.dueDate && !task.completed && task.dueDate === today) {
+                        // يمكنك هنا إضافة إشعار للمستخدم
+                        console.log(`تذكير: المهمة "${task.name}" تنتهي اليوم!`);
+                    }
+                });
+            }
+            
+            // حفظ الأهداف في localStorage
+            function saveGoals() {
+                localStorage.setItem('goals', JSON.stringify(goals));
+            }
+            
+            // حفظ المهام في localStorage
+            function saveTasks() {
+                localStorage.setItem('tasks', JSON.stringify(tasks));
+            }
+            
+            // وظائف مساعدة
+            function formatDate(dateString) {
+                if (!dateString) return '';
+                
+                const options = { year: 'numeric', month: 'long', day: 'numeric' };
+                const date = new Date(dateString);
+                return date.toLocaleDateString('ar-EG', options);
+            }
+            
+            // تنسيق تاريخ ووقت بشكل كامل
+            function formatDateTime(dateObj) {
+                try {
+                    // dateObj قد يكون Date أو string
+                    const d = (dateObj instanceof Date) ? dateObj : new Date(dateObj);
+                    return d.toLocaleString('ar-EG', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                } catch (e) {
+                    return '';
+                }
+            }
+            
+            // توثيق الأنشطة (Audit Log) لكل هدف/مهمة/مستخدم
+            function logActivity(actionType, entityType, entityId, payload) {
+                try {
+                    const u = (firebase.auth && firebase.auth().currentUser) ? firebase.auth().currentUser : null;
+                    const db = firebase.firestore();
+                    const base = { 
+                        actionType: actionType, 
+                        entityType: entityType, 
+                        entityId: entityId, 
+                        payload: payload || {}, 
+                        actorUid: u ? u.uid : null, 
+                        actorEmail: u ? (u.email || '') : '', 
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp() 
+                    };
+                    // توثيق عام + توثيق تحت الكيان إن كان هدف أو مهمة
+                    db.collection('activity').add(base);
+                    if (entityType === 'goal') {
+                        db.collection('goals').doc(entityId).collection('activity').add(base);
+                    } else if (entityType === 'task') {
+                        db.collection('tasks').doc(entityId).collection('activity').add(base);
+                    }
+                } catch (e) {
+                    console.warn('logActivity error', e);
+                }
+            }
+            
+            function calculateDaysLeft(endDate) {
+                const today = new Date();
+                const end = new Date(endDate);
+                const diffTime = end - today;
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            }
+            
+            // تهيئة تاريخ البداية والنهاية في نموذج الهدف
+            document.getElementById('startDate').valueAsDate = new Date();
+            const endDateInput = document.getElementById('endDate');
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            endDateInput.valueAsDate = tomorrow;
+        });
+    </script>
+</body>
+</html>
