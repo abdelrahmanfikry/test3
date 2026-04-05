@@ -1625,6 +1625,17 @@
                 };
                 db.collection('goals').add(newGoal).then(function(docRef){
                     logActivity('create','goal', docRef.id, { name: goalName });
+                    // بريد: إشعار بإنشاء هدف
+                    loadUsersByUids(newGoal.assignedUserIds).then(function(users){
+                        const recipients = users.map(u => u.email).filter(Boolean);
+                        const html = `
+                            <div style="font-family:Tahoma,Arial,sans-serif">
+                                <h3>تم إنشاء هدف جديد</h3>
+                                <p>الاسم: <strong>${goalName}</strong></p>
+                                <p>البداية: ${formatDate(newGoal.startDate)} - النهاية: ${formatDate(newGoal.endDate)}</p>
+                            </div>`;
+                        sendEmails(recipients, 'هدف جديد تم إنشاؤه', html);
+                    });
                 }).catch(function(err){
                     console.error('add goal error', err);
                     alert('تعذر حفظ الهدف');
@@ -1666,6 +1677,25 @@
                     db.collection('tasks').add(newTask).then(function(docRef){
                     logActivity('create','task', docRef.id, { name: taskName, goalId: goalId });
                     updateGoalProgress(goalId);
+                        // بريد: مهمة جديدة
+                        const subject = 'تم تعيين مهمة جديدة لك';
+                        const html = `
+                            <div style="font-family:Tahoma,Arial,sans-serif">
+                                <h3>مهمة جديدة</h3>
+                                <p>الاسم: <strong>${taskName}</strong></p>
+                                ${newTask.dueDate ? `<p>الموعد: ${formatDate(newTask.dueDate)}</p>` : ''}
+                            </div>`;
+                        if (newTask.assignedToEmail) {
+                            sendEmails([newTask.assignedToEmail], subject, html);
+                        } else {
+                            // إن لم يُحدد مكلّف، أرسل لكل مستخدمي الهدف
+                            const g = goals.find(g => g.id === goalId);
+                            const assigned = g && Array.isArray(g.assignedUserIds) ? g.assignedUserIds : [];
+                            loadUsersByUids(assigned).then(function(arr){
+                                const recipients = arr.map(u => u.email).filter(Boolean);
+                                sendEmails(recipients, 'تم إضافة مهمة جديدة على الهدف', html);
+                            });
+                        }
                 }).catch(function(err){
                     console.error('add task error', err);
                     alert('تعذر حفظ المهمة');
@@ -2175,6 +2205,24 @@
                                 logActivity('update','task', task.id, { completed: !!this.checked, goalId: task.goalId });
                                 if (task.goalId) updateGoalProgress(task.goalId);
                                 if (this.checked) showCompletionMessage();
+                                // بريد: إكمال مهمة
+                                if (this.checked) {
+                                    const goal = goals.find(g => g.id === task.goalId);
+                                    const ownerUid = goal ? goal.createdBy : null;
+                                    const notifyUids = [];
+                                    if (ownerUid) notifyUids.push(ownerUid);
+                                    if (task.assignedToUid) notifyUids.push(task.assignedToUid);
+                                    loadUsersByUids(notifyUids).then(function(arr){
+                                        const recipients = arr.map(u => u.email).filter(Boolean);
+                                        const html = `
+                                            <div style="font-family:Tahoma,Arial,sans-serif">
+                                                <h3>تم إنجاز مهمة</h3>
+                                                <p>الاسم: <strong>${task.name}</strong></p>
+                                                ${task.dueDate ? `<p>الموعد: ${formatDate(task.dueDate)}</p>` : ''}
+                                            </div>`;
+                                        sendEmails(recipients, 'تم إنجاز مهمة', html);
+                                    });
+                                }
                             }.bind(this)).catch(function(err){
                                 console.error('toggle task error', err);
                             });
@@ -2397,6 +2445,30 @@
                     }
                 } catch (e) {
                     console.warn('logActivity error', e);
+                }
+            }
+            
+            // إرسال بريد (يتطلّب تفعيل Firebase Extension: Trigger Email)
+            function sendEmails(toEmails, subject, html) {
+                try {
+                    const db = firebase.firestore();
+                    const emails = Array.isArray(toEmails) ? toEmails.filter(Boolean) : [];
+                    if (emails.length === 0) return;
+                    const batchMax = 450; // حد أمان
+                    emails.slice(0, batchMax).forEach(function(email){
+                        db.collection('mail').add({
+                            to: email,
+                            message: {
+                                subject: subject,
+                                html: html
+                            }
+                        }).catch(function(e){
+                            // لو الإضافة غير مثبّتة أو القواعد غير مفعّلة؛ تجاهل بصمت
+                            console.warn('sendEmails skip', e && e.message ? e.message : e);
+                        });
+                    });
+                } catch (e) {
+                    console.warn('sendEmails error', e);
                 }
             }
             
