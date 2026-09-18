@@ -1,0 +1,64 @@
+// قواعد Firestore المقترحة لمشروع to-do-aeb49
+// Firebase Console → Firestore Database → Rules → Publish
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.role == 'admin';
+    }
+    function canSeeGoal(g) {
+      return isAdmin()
+        || g.visibility == 'public' && !(request.auth.uid in (g.blockedUserIds != null ? g.blockedUserIds : []))
+        || request.auth.uid in g.assignedUserIds
+        || g.createdBy == request.auth.uid;
+    }
+
+    match /userProfiles/{uid} {
+      allow read: if signedIn();
+      // المستخدم ينشئ بروفايله كـ user فقط ولا يغيّر دوره؛ المشرف يغيّر الأدوار
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'user';
+      allow update: if signedIn() && (
+        (request.auth.uid == uid && request.resource.data.role == resource.data.role) || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /goals/{goalId} {
+      allow read: if signedIn() && canSeeGoal(resource.data);
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn() && (isAdmin() || resource.data.createdBy == request.auth.uid
+        || (request.auth.uid in resource.data.assignedUserIds
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress', 'updatedAt'])));
+      allow delete: if signedIn() && (isAdmin() || resource.data.createdBy == request.auth.uid);
+
+      match /activity/{a} { allow read: if signedIn(); allow create: if signedIn(); }
+    }
+
+    match /tasks/{taskId} {
+      allow read: if signedIn() && canSeeGoal(get(/databases/$(database)/documents/goals/$(resource.data.goalId)).data);
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid
+        && canSeeGoal(get(/databases/$(database)/documents/goals/$(request.resource.data.goalId)).data);
+      allow update, delete: if signedIn() && (isAdmin()
+        || resource.data.createdBy == request.auth.uid
+        || resource.data.assignedToUid == request.auth.uid
+        || get(/databases/$(database)/documents/goals/$(resource.data.goalId)).data.createdBy == request.auth.uid);
+
+      match /activity/{a} { allow read: if signedIn(); allow create: if signedIn(); }
+    }
+
+    match /activity/{id} {
+      allow read: if signedIn() && (isAdmin() || resource.data.actorUid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.actorUid == request.auth.uid;
+    }
+
+    match /mail/{id} {
+      allow create: if signedIn();
+      allow read, update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}
