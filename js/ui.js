@@ -80,6 +80,33 @@ export function promptDialog(title, value = '', { type = 'text', placeholder = '
   });
 }
 
+/** قائمة منبثقة عامة بموضع ثابت قرب عنصر: items = [{ label, run, icon?, color?, danger? }] */
+export function popMenu(anchor, items, { above = false } = {}) {
+  document.querySelectorAll('.popmenu').forEach(m => m.remove());
+  const menu = document.createElement('div'); menu.className = 'popmenu';
+  menu.innerHTML = items.map((it, i) => `<button data-i="${i}" class="${it.danger ? 'danger' : ''}">${it.color ? `<span class="goal-dot" style="background:${it.color}"></span>` : it.icon ? `<svg class="ic"><use href="#i-${it.icon}"/></svg>` : ''}${esc(it.label)}</button>`).join('') || '<span class="hint" style="padding:.4rem .6rem;display:block">لا خيارات</span>';
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect(), rtl = document.documentElement.dir === 'rtl';
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  let left = rtl ? r.right - w : r.left; left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  let top = above ? r.top - h - 6 : r.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  if (top < 8) top = 8;
+  menu.style.left = left + 'px'; menu.style.top = top + 'px';
+  const close = () => { menu.remove(); document.removeEventListener('click', onDoc, true); document.removeEventListener('keydown', onKey); };
+  const onDoc = (e) => { if (!menu.contains(e.target)) close(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  setTimeout(() => { document.addEventListener('click', onDoc, true); document.addEventListener('keydown', onKey); }, 0);
+  menu.querySelectorAll('[data-i]').forEach(b => { b.onclick = (e) => { e.stopPropagation(); close(); items[Number(b.dataset.i)].run(); }; });
+  return menu;
+}
+
+/** نسخ نص إلى الحافظة مع إشعار */
+export async function copyText(text, msg = 'تم النسخ') {
+  try { await navigator.clipboard.writeText(text); toast(msg, { type: 'ok' }); }
+  catch { const i = document.createElement('input'); i.value = text; document.body.appendChild(i); i.select(); try { document.execCommand('copy'); toast(msg, { type: 'ok' }); } catch { toast('تعذّر النسخ', { type: 'err' }); } i.remove(); }
+}
+
 /** احتفال خفيف بقصاصات ملوّنة */
 export function celebrate(title, text) {
   const wrap = document.createElement('div');

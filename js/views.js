@@ -1,8 +1,12 @@
 // كل شاشات التطبيق + نوافذ الإضافة/التعديل.
-import { state, notify, goalTasks, goalProgress, goalStatus, visibleGoals, taskBucket, sortTasks, stats, userLabel, canEditGoal, canEditTask, setPref } from './store.js';
+import { state, notify, goalTasks, goalProgress, goalStatus, visibleGoals, taskBucket, sortTasks, stats, userLabel, canEditGoal, canEditTask, setPref, isMine, favorites, isFavorite } from './store.js';
 import { api, isDemo, resetDemo } from './data.js';
 import { esc, fmtDate, fmtDateTime, relativeDue, daysFromToday, isoDate, addDays, toMillis, PRIORITIES, CATEGORIES, GOAL_COLORS, QUOTES, groupBy } from './utils.js';
-import { toast, openModal, closeModal, confirmDialog, promptDialog, celebrate, setBusy } from './ui.js';
+import { toast, openModal, closeModal, confirmDialog, promptDialog, celebrate, setBusy, copyText } from './ui.js';
+import { ensureSortable, ensureChart } from './lib.js';
+import { bulk, toggleBulk, bulkCheckbox, bindBulk, snoozeMenu, deleteTaskWithUndo, deleteGoalWithUndo } from './bulk.js';
+import { exportJSON, importJSON, exportICS, exportProject, duplicateProject } from './backup.js';
+import { openFocus, sessionsToday } from './focus.js';
 import { projectStages, taskStage, stagePatch, completionPatch, subtaskProgress, blockers, checklistProgress, cloneFromTemplate, DEFAULT_STAGES, DEFAULT_PERSONAL_STAGES, myActivities, activityState, ACTIVITY_TYPES, hoursSpent } from './model.js';
 import { openTask, spawnRecurrence } from './task-panel.js';
 import { renderKanban } from './kanban.js';
@@ -34,6 +38,33 @@ function ring(pct, size = 44, color) {
 function emptyState(icon, title, sub, btn) {
   return `<div class="empty"><svg class="ic big"><use href="#i-${icon}"/></svg><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ''}${btn || ''}</div>`;
 }
+function weekStart() { return Number(state.prefs.weekStart) === 1 ? 1 : 6; }
+
+/** خريطة حرارية للإنجاز خلال 12 أسبوعاً */
+function heatmapHtml() {
+  const counts = {};
+  state.tasks.filter(t => t.completed).forEach(t => { const d = isoDate(new Date(toMillis(t.completedAt || t.updatedAt))); counts[d] = (counts[d] || 0) + 1; });
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const off = (today.getDay() - weekStart() + 7) % 7;
+  const start = addDays(today, -(off + 7 * 11));
+  const max = Math.max(1, ...Object.values(counts));
+  let cells = '';
+  for (let i = 0; i < 84; i++) {
+    const d = addDays(start, i); const iso = isoDate(d); const n = counts[iso] || 0;
+    if (d > today) { cells += '<i style="visibility:hidden"></i>'; continue; }
+    const lvl = !n ? '' : n >= max * 0.66 ? 'l3' : n >= max * 0.33 ? 'l2' : 'l1';
+    cells += `<i class="${lvl} ${iso === isoDate(today) ? 'today' : ''}" title="${fmtDate(iso)}: ${n} مهمة"></i>`;
+  }
+  return `<div class="heatmap">${cells}</div><div class="heat-legend">أقل <i style="background:var(--surface-3)"></i><i style="background:color-mix(in srgb, var(--success) 35%, var(--surface-3))"></i><i style="background:color-mix(in srgb, var(--success) 60%, var(--surface-3))"></i><i style="background:var(--success)"></i> أكثر</div>`;
+}
+function weekStripHtml(openTasks) {
+  return `<div class="week-strip">${Array.from({ length: 7 }, (_, i) => { const d = addDays(new Date(), i); const iso = isoDate(d); const n = openTasks.filter(t => t.dueDate === iso).length; return `<button class="week-day ${i === 0 ? 'today' : ''} ${n >= 4 ? 'busy' : ''}" data-day="${iso}"><span class="wd-name">${i === 0 ? 'اليوم' : i === 1 ? 'غداً' : d.toLocaleDateString('ar-EG', { weekday: 'short' })}</span><span class="wd-num">${d.getDate()}</span><span class="wd-count">${n ? `${n} مهمة` : '—'}</span></button>`; }).join('')}</div>`;
+}
+function workloadHtml(openTasks) {
+  const rows = state.users.map(u => { const mine = openTasks.filter(t => t.assignedToUid === u.uid || (t.assignedUserIds || []).includes(u.uid)); return { u, open: mine.length, late: mine.filter(t => taskBucket(t) === 'overdue').length }; }).filter(r => r.open).sort((a, b) => b.open - a.open).slice(0, 8);
+  const max = Math.max(1, ...rows.map(r => r.open));
+  return rows.length ? `<div class="workload">${rows.map(r => `<div class="wl-row"><span class="who">${avatar(r.u.uid, 20)} ${esc(r.u.displayName || r.u.email)}</span><div class="wl-bar"><i class="late" style="width:${(r.late / max) * 100}%"></i><i class="open" style="width:${((r.open - r.late) / max) * 100}%"></i></div><span class="hint">${r.open}${r.late ? ` · <span class="c-danger">${r.late} متأخرة</span>` : ''}</span></div>`).join('')}</div>` : '<p class="muted">لا مهام مفتوحة مكلّفة.</p>';
+}
 
 // ================= لوحة التحكم =================
 export function renderDashboard(el) {
@@ -60,6 +91,7 @@ export function renderDashboard(el) {
       <div class="hero-actions">
         <button class="btn btn-primary" data-act="add-task"><svg class="ic"><use href="#i-plus"/></svg> مهمة سريعة</button>
         <button class="btn" data-act="add-goal"><svg class="ic"><use href="#i-flag"/></svg> هدف جديد</button>
+        <button class="btn" data-act="focus" title="وضع التركيز (F)">🍅 تركيز${sessionsToday() ? ` <small>${sessionsToday()}</small>` : ''}</button>
       </div>
     </div>
     <div class="kpis">
@@ -92,10 +124,17 @@ export function renderDashboard(el) {
           ${mine.length ? `<p class="muted small">${mine.length} مهمة مفتوحة مكلّف بها أنت</p>${taskList(sortTasks(mine).slice(0, 4), { compact: true })}` : `<p class="muted">لا توجد مهام مكلّف بها حالياً.</p>`}
         </div>
       </div>
-    </div>`;
+    </div>
+    <div class="grid-2">
+      <div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-cal"/></svg> الأيام السبعة القادمة</h2><a href="#calendar" class="link">التقويم →</a></div>${weekStripHtml(myOpen)}</div>
+      <div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-chart"/></svg> إنجازك خلال 12 أسبوعاً</h2><a href="#reports" class="link">التقارير →</a></div>${heatmapHtml()}</div>
+    </div>
+    ${state.users.length > 1 ? `<div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-users"/></svg> عبء العمل على الفريق</h2>${state.isAdmin ? '<a href="#team" class="link">الفريق →</a>' : ''}</div>${workloadHtml(myOpen)}</div>` : ''}`;
   bindTaskList(el);
   el.querySelector('[data-act="add-task"]').onclick = () => openTaskModal();
   el.querySelector('[data-act="add-goal"]').onclick = () => openGoalModal();
+  el.querySelector('[data-act="focus"]').onclick = () => openFocus();
+  el.querySelectorAll('.week-day').forEach(b => { b.onclick = () => { filters.calendarSelected = b.dataset.day; filters.calendarMonth = b.dataset.day.slice(0, 7); location.hash = 'calendar'; }; });
   el.querySelectorAll('[data-open-goal]').forEach(x => { x.onclick = () => { location.hash = 'project/' + x.dataset.openGoal; }; });
   el.querySelectorAll('[data-open-task]').forEach(x => { x.onclick = () => openTask(x.dataset.openTask, 'activities'); });
 }
@@ -181,6 +220,9 @@ function goalCard(g) {
         <div class="menu" hidden>
           <button data-act="project"><svg class="ic"><use href="#i-list"/></svg> صفحة المشروع</button>
           <button data-act="open"><svg class="ic"><use href="#i-eye"/></svg> عرض سريع</button>
+          <button data-act="fav"><svg class="ic"><use href="#i-star"/></svg> ${isFavorite(g.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}</button>
+          <button data-act="dup"><svg class="ic"><use href="#i-copy"/></svg> نسخ المشروع</button>
+          <button data-act="export"><svg class="ic"><use href="#i-download"/></svg> تصدير JSON</button>
           ${canEditGoal(g) ? `<button data-act="template"><svg class="ic"><use href="#i-copy"/></svg> ${g.template ? 'إلغاء كقالب' : 'حفظ كقالب'}</button>` : ''}
           <button data-act="task"><svg class="ic"><use href="#i-plus"/></svg> إضافة مهمة</button>
           ${canEditGoal(g) ? `<button data-act="edit"><svg class="ic"><use href="#i-edit"/></svg> تعديل</button>
@@ -217,12 +259,15 @@ function bindGoalCards(root) {
         const act = b.dataset.act;
         if (act === 'open') openGoalDrawer(id);
         if (act === 'project') location.hash = 'project/' + id;
+        if (act === 'fav') { const f = favorites(); await api.updateProfile({ favorites: f.includes(id) ? f.filter(x => x !== id) : [...f, id].slice(-8) }); toast(f.includes(id) ? 'أُزيل من المفضلة' : 'أُضيف إلى المفضلة ★', { type: 'ok' }); }
+        if (act === 'dup') duplicateProject(g);
+        if (act === 'export') exportProject(g);
         if (act === 'template') { await api.updateGoal(id, { template: !g.template }); toast(g.template ? 'لم يعد قالباً' : 'تم الحفظ كقالب', { type: 'ok' }); }
         if (act === 'task') openTaskModal(null, id);
         if (act === 'edit') openGoalModal(g);
         if (act === 'access') openAccessModal(g);
         if (act === 'archive') { await api.updateGoal(id, { archived: !g.archived }); toast(g.archived ? 'تم إلغاء الأرشفة' : 'تمت الأرشفة'); }
-        if (act === 'delete') { if (await confirmDialog(`سيتم حذف الهدف «${g.name}» وكل مهامه (${goalTasks(id).length}). لا يمكن التراجع.`, { okLabel: 'حذف' })) { await api.deleteGoal(id); toast('تم حذف الهدف'); } }
+        if (act === 'delete') deleteGoalWithUndo(g, goalTasks(id).length);
       };
     });
   });
@@ -258,6 +303,7 @@ export function renderTasks(el) {
         <select id="tasksPriority"><option value="all">كل الأولويات</option>${Object.entries(PRIORITIES).map(([k, v]) => `<option value="${k}" ${f.priority === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
         ${allTags.length ? `<select id="tasksTag"><option value="all">كل التاجز</option>${allTags.map(x => `<option value="${x.id}" ${f.tag === x.id ? 'selected' : ''}>${esc(x.name)}${x.goal ? ` (${esc(x.goal)})` : ''}</option>`).join('')}</select>` : ''}
         <button class="btn ${f.star ? 'btn-primary' : ''}" id="tasksStar" title="بنجمة">★</button>
+        ${f.view === 'list' ? `<button class="btn ${bulk.on ? 'btn-primary' : ''}" id="tasksSelect" title="تحديد متعدد">☑</button>` : ''}
         <select id="tasksGroup"><option value="due" ${f.group === 'due' ? 'selected' : ''}>تجميع: الموعد</option><option value="goal" ${f.group === 'goal' ? 'selected' : ''}>تجميع: المشروع</option><option value="stage" ${f.group === 'stage' ? 'selected' : ''}>تجميع: المرحلة</option><option value="priority" ${f.group === 'priority' ? 'selected' : ''}>تجميع: الأولوية</option><option value="none" ${f.group === 'none' ? 'selected' : ''}>بدون تجميع</option></select>
         <button class="btn btn-primary" id="tasksAdd"><svg class="ic"><use href="#i-plus"/></svg> مهمة</button>
       </div>
@@ -272,6 +318,8 @@ export function renderTasks(el) {
   el.querySelectorAll('[data-status]').forEach(b => { b.onclick = () => { f.status = b.dataset.status; renderTasks(el); }; });
   const tt = $('tasksTag'); if (tt) tt.onchange = (e) => { f.tag = e.target.value; renderTasks(el); };
   $('tasksStar').onclick = () => { f.star = !f.star; renderTasks(el); };
+  const tsel = $('tasksSelect'); if (tsel) tsel.onclick = () => { toggleBulk(); renderTasks(el); };
+  if (f.view === 'list') bindBulk(el, () => renderTasks(el));
   el.querySelectorAll('[data-sf]').forEach(b => { b.onclick = () => { const s = saved.find(x => x.id === b.dataset.sf); if (!s) return; if (f.savedId === s.id) { f.savedId = null; Object.assign(f, { q: '', goal: 'all', assignee: 'all', priority: 'all', status: 'open', tag: 'all', star: false }); } else { Object.assign(f, s.filters, { savedId: s.id }); } renderTasks(el); }; });
   $('sfSave').onclick = async () => { const name = await promptDialog('اسم الفلتر', ''); if (!name) return; const { savedId, ...rest } = f; const sf = { id: Date.now().toString(36), name, filters: rest }; await api.updateProfile({ savedFilters: [...saved, sf] }); f.savedId = sf.id; toast('تم حفظ الفلتر', { type: 'ok' }); renderTasks(el); };
   const sd = $('sfDel'); if (sd) sd.onclick = async () => { await api.updateProfile({ savedFilters: saved.filter(x => x.id !== f.savedId) }); f.savedId = null; renderTasks(el); };
@@ -372,7 +420,7 @@ function taskRow(t, compact) {
   const stg = g ? taskStage(t, g) : null; const sp = subtaskProgress(state.tasks, t.id); const cl = checklistProgress(t); const blk = blockers(t, state.tasks);
   const tags = g && g.tags ? g.tags.filter(x => (t.tags || []).includes(x.id)) : [];
   return `<div class="task ${t.completed ? 'done' : ''} ${PRIORITIES[t.priority || 'medium'].cls}" data-task="${t.id}">
-    ${!compact ? `<span class="drag" title="اسحب للترتيب"><svg class="ic"><use href="#i-grip"/></svg></span>` : ''}
+    ${!compact ? (bulk.on ? bulkCheckbox(t) : `<span class="drag" title="اسحب للترتيب"><svg class="ic"><use href="#i-grip"/></svg></span>`) : ''}
     <label class="check"><input type="checkbox" ${t.completed ? 'checked' : ''} aria-label="إنجاز"><span></span></label>
     <div class="task-main">
       <div class="task-title">${t.starred ? '<span class="star on sm">★</span> ' : ''}${esc(t.name)}${blk.length ? ' <span class="c-danger" title="محجوبة بمهام أخرى">⛔</span>' : ''}${t.recurrence && t.recurrence.freq ? ' <span class="hint" title="متكررة">🔁</span>' : ''}</div>
@@ -380,7 +428,7 @@ function taskRow(t, compact) {
     </div>
     ${!compact ? priorityBadge(t.priority) : ''}
     <div class="task-actions">
-      ${canEditTask(t) ? `<button class="iconbtn" data-act="edit" title="تعديل"><svg class="ic"><use href="#i-edit"/></svg></button><button class="iconbtn danger" data-act="del" title="حذف"><svg class="ic"><use href="#i-trash"/></svg></button>` : ''}
+      ${canEditTask(t) ? `${!t.completed ? `<button class="iconbtn" data-act="snooze" title="تأجيل"><svg class="ic"><use href="#i-timer"/></svg></button>` : ''}<button class="iconbtn" data-act="edit" title="تعديل"><svg class="ic"><use href="#i-edit"/></svg></button><button class="iconbtn danger" data-act="del" title="حذف"><svg class="ic"><use href="#i-trash"/></svg></button>` : ''}
     </div>
   </div>`;
 }
@@ -390,7 +438,7 @@ function bindTaskList(root) {
     const id = row.dataset.task;
     const t = state.tasks.find(x => x.id === id);
     if (!t) return;
-    row.querySelector('input[type=checkbox]').onchange = async (e) => {
+    row.querySelector('label.check:not(.sel) input[type=checkbox]').onchange = async (e) => {
       const done = e.target.checked;
       row.classList.toggle('done', done);
       try {
@@ -407,22 +455,59 @@ function bindTaskList(root) {
       } catch (err) { console.error(err); toast('تعذّر الحفظ', { type: 'err' }); e.target.checked = !done; }
     };
     const edit = row.querySelector('[data-act="edit"]'); if (edit) edit.onclick = (e) => { e.stopPropagation(); openTask(t.id); };
-    const del = row.querySelector('[data-act="del"]'); if (del) del.onclick = async (e) => { e.stopPropagation(); if (await confirmDialog(`حذف المهمة «${t.name}»؟`, { okLabel: 'حذف' })) { await api.deleteTask(id); toast('تم حذف المهمة'); } };
+    const del = row.querySelector('[data-act="del"]'); if (del) del.onclick = (e) => { e.stopPropagation(); deleteTaskWithUndo(t); };
+    const sn = row.querySelector('[data-act="snooze"]'); if (sn) sn.onclick = (e) => { e.stopPropagation(); snoozeMenu(t, sn); };
     row.querySelector('.task-title').onclick = () => openTask(t.id);
   });
-  if (window.Sortable) {
+  if (!bulk.on && root.querySelector('.task-list.sortable')) ensureSortable().then(S => {
+    if (!root.isConnected) return;
     root.querySelectorAll('.task-list.sortable').forEach(list => {
-      new window.Sortable(list, { animation: 150, handle: '.drag', ghostClass: 'ghost', onEnd: () => { const ids = [...list.querySelectorAll('.task')].map(x => x.dataset.task); api.reorderTasks(ids).catch(() => {}); } });
+      new S(list, { animation: 150, handle: '.drag', ghostClass: 'ghost', onEnd: () => { const ids = [...list.querySelectorAll('.task')].map(x => x.dataset.task); api.reorderTasks(ids).catch(() => {}); } });
     });
-  }
+  }).catch(() => {});
 }
 
 // ================= التقويم =================
+const DAY_NAMES = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
+function calViewSeg(cur) { return `<div class="seg">${[['month', 'شهر'], ['week', 'أسبوع']].map(([k, v]) => `<button class="${cur === k ? 'active' : ''}" data-cv="${k}">${v}</button>`).join('')}</div>`; }
+function bindCalCommon(el) {
+  el.querySelectorAll('[data-cv]').forEach(b => { b.onclick = () => { setPref('calView', b.dataset.cv); renderCalendar(el); }; });
+  const ics = $('calIcs'); if (ics) ics.onclick = () => { const goals = visibleGoals().filter(g => !g.template); exportICS(state.tasks.filter(t => goals.some(g => g.id === t.goalId)), 'goals-calendar'); toast('تم تصدير ملف التقويم — استورده في Google Calendar أو Outlook', { type: 'ok' }); };
+}
+
+/** عرض الأسبوع: أعمدة الأيام مع سحب المهام بينها لتغيير الموعد */
+function renderWeek(el) {
+  const ws = weekStart();
+  const todayIso = isoDate();
+  const sel = filters.calendarSelected || todayIso;
+  const base = new Date(sel + 'T00:00:00'); const off = (base.getDay() - ws + 7) % 7; const start = addDays(base, -off);
+  const days = Array.from({ length: 7 }, (_, i) => isoDate(addDays(start, i)));
+  const goals = visibleGoals().filter(g => !g.template);
+  const tasksByDay = groupBy(state.tasks.filter(t => t.dueDate && !t.parentId && goals.some(g => g.id === t.goalId)), t => t.dueDate);
+  el.innerHTML = `
+    <div class="toolbar">
+      <div class="cal-nav"><button class="iconbtn" id="calPrev"><svg class="ic"><use href="#i-next"/></svg></button><h2>${fmtDate(days[0], { day: 'numeric', month: 'short' })} – ${fmtDate(days[6], { day: 'numeric', month: 'short', year: 'numeric' })}</h2><button class="iconbtn" id="calNext"><svg class="ic"><use href="#i-prev"/></svg></button><button class="btn btn-sm" id="calToday">اليوم</button></div>
+      <div class="toolbar-right">${calViewSeg('week')}<button class="btn" id="calIcs" title="تصدير إلى Google Calendar / Outlook"><svg class="ic"><use href="#i-download"/></svg> .ics</button><button class="btn btn-primary" id="calAdd"><svg class="ic"><use href="#i-plus"/></svg> مهمة</button></div>
+    </div>
+    <div class="cal-week">${days.map(iso => { const ts = sortTasks(tasksByDay.get(iso) || []); const d = new Date(iso + 'T00:00:00'); return `<div class="cw-day ${iso === todayIso ? 'today' : ''}" data-day="${iso}"><div class="cw-head"><span>${DAY_NAMES[d.getDay()]}</span><small>${fmtDate(iso, { day: 'numeric', month: 'short' })}</small></div><div class="cw-body" data-body="${iso}">${ts.map(t => `<div class="cw-task ${t.completed ? 'done' : ''}" data-task="${t.id}" style="--gc:${goalById(t.goalId)?.color || '#2563eb'}" title="${esc(t.name)}">${t.starred ? '★ ' : ''}${esc(t.name)}</div>`).join('')}</div><button class="cw-add" data-add="${iso}">+ مهمة</button></div>`; }).join('')}</div>
+    <p class="hint">اسحب مهمة بين الأيام لتغيير موعدها · اضغط عليها لفتحها.</p>`;
+  bindCalCommon(el);
+  $('calPrev').onclick = () => { filters.calendarSelected = isoDate(addDays(start, -7)); renderWeek(el); };
+  $('calNext').onclick = () => { filters.calendarSelected = isoDate(addDays(start, 7)); renderWeek(el); };
+  $('calToday').onclick = () => { filters.calendarSelected = todayIso; renderWeek(el); };
+  $('calAdd').onclick = () => openTaskModal(null, null, sel);
+  el.querySelectorAll('[data-add]').forEach(b => { b.onclick = () => openTaskModal(null, null, b.dataset.add); });
+  el.querySelectorAll('[data-task]').forEach(x => { x.onclick = () => openTask(x.dataset.task); });
+  ensureSortable().then(S => { if (!el.isConnected) return; el.querySelectorAll('.cw-body').forEach(body => new S(body, { group: 'calweek', animation: 150, ghostClass: 'ghost', delay: 120, delayOnTouchOnly: true, onEnd: (ev) => { const iso = ev.to.dataset.body; const t = state.tasks.find(x => x.id === ev.item.dataset.task); if (t && t.dueDate !== iso) api.updateTask(t.id, { dueDate: iso }).then(() => toast(`نُقلت إلى ${fmtDate(iso)}`, { type: 'ok' })); } })); }).catch(() => {});
+}
+
 export function renderCalendar(el) {
+  if (state.prefs.calView === 'week') { renderWeek(el); return; }
   const base = filters.calendarMonth ? new Date(filters.calendarMonth + '-01T00:00:00') : new Date();
   const y = base.getFullYear(), m = base.getMonth();
   const first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
-  const startOffset = (first.getDay() + 1) % 7; // الأسبوع يبدأ السبت
+  const ws = weekStart();
+  const startOffset = (first.getDay() - ws + 7) % 7;
   const days = [];
   for (let i = 0; i < startOffset; i++) days.push(null);
   for (let d = 1; d <= last.getDate(); d++) days.push(new Date(y, m, d));
@@ -433,11 +518,11 @@ export function renderCalendar(el) {
   el.innerHTML = `
     <div class="toolbar">
       <div class="cal-nav"><button class="iconbtn" id="calPrev"><svg class="ic"><use href="#i-next"/></svg></button><h2>${first.toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })}</h2><button class="iconbtn" id="calNext"><svg class="ic"><use href="#i-prev"/></svg></button><button class="btn btn-sm" id="calToday">اليوم</button></div>
-      <button class="btn btn-primary" id="calAdd"><svg class="ic"><use href="#i-plus"/></svg> مهمة في ${fmtDate(sel)}</button>
+      <div class="toolbar-right">${calViewSeg('month')}<button class="btn" id="calIcs" title="تصدير إلى Google Calendar / Outlook"><svg class="ic"><use href="#i-download"/></svg> .ics</button><button class="btn btn-primary" id="calAdd"><svg class="ic"><use href="#i-plus"/></svg> مهمة في ${fmtDate(sel)}</button></div>
     </div>
     <div class="grid-cal">
       <div class="panel cal">
-        <div class="cal-head">${['سبت', 'أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة'].map(d => `<span>${d}</span>`).join('')}</div>
+        <div class="cal-head">${Array.from({ length: 7 }, (_, i) => `<span>${DAY_NAMES[(ws + i) % 7]}</span>`).join('')}</div>
         <div class="cal-grid">${days.map(d => {
           if (!d) return '<span class="cal-cell empty"></span>';
           const iso = isoDate(d); const ts = tasksByDay.get(iso) || []; const gs = goalsByDay.get(iso) || [];
@@ -459,6 +544,7 @@ export function renderCalendar(el) {
     bindTaskList($('calDay'));
     $('calDay').querySelectorAll('[data-open-goal]').forEach(x => { x.onclick = () => openGoalDrawer(x.dataset.openGoal); });
   };
+  bindCalCommon(el);
   el.querySelectorAll('.cal-cell[data-day]').forEach(c => { c.onclick = () => renderDay(c.dataset.day); });
   $('calPrev').onclick = () => { filters.calendarMonth = isoDate(new Date(y, m - 1, 1)).slice(0, 7); renderCalendar(el); };
   $('calNext').onclick = () => { filters.calendarMonth = isoDate(new Date(y, m + 1, 1)).slice(0, 7); renderCalendar(el); };
@@ -484,6 +570,16 @@ export function renderReports(el) {
   }
   const perUser = [...groupBy(state.tasks.filter(t => t.assignedToUid), t => t.assignedToUid).entries()].map(([u, ts]) => ({ u, total: ts.length, done: ts.filter(t => t.completed).length, late: ts.filter(t => taskBucket(t) === 'overdue').length })).sort((a, b) => b.done - a.done);
   const byCat = [...groupBy(goals, g => g.category || 'other').entries()].map(([k, gs]) => ({ k, n: gs.length, p: Math.round(gs.reduce((a, g) => a + goalProgress(g), 0) / gs.length) }));
+  // الالتزام بالمواعيد، السرعة، الساعات
+  const withDue = state.tasks.filter(t => t.completed && t.dueDate && t.completedAt);
+  const onTime = withDue.filter(t => isoDate(new Date(toMillis(t.completedAt))) <= t.dueDate).length;
+  const onTimeRate = withDue.length ? Math.round((onTime / withDue.length) * 100) : null;
+  const velocity = (doneW.slice(-4).reduce((a, b) => a + b, 0) / 4).toFixed(1);
+  const since30 = isoDate(addDays(new Date(), -30));
+  const sheets = state.tasks.flatMap(t => (t.timesheets || []).filter(x => x.date >= since30).map(x => ({ ...x, task: t })));
+  const hours30 = Math.round(sheets.reduce((a, x) => a + (Number(x.hours) || 0), 0) * 10) / 10;
+  const byMemberProject = [...groupBy(sheets, x => `${x.uid}|${x.task.goalId}`).entries()].map(([k, xs]) => { const [u, gid] = k.split('|'); return { u, gid, h: Math.round(xs.reduce((a, x) => a + (Number(x.hours) || 0), 0) * 10) / 10 }; }).sort((a, b) => b.h - a.h).slice(0, 12);
+  const perProject = goals.filter(g => !g.template).map(g => { const ts = goalTasks(g.id); const open = ts.filter(t => !t.completed); return { g, total: ts.length, open: open.length, done: ts.length - open.length, late: open.filter(t => taskBucket(t) === 'overdue').length, hours: Math.round(ts.reduce((a, t) => a + (t.timesheets || []).reduce((b, x) => b + (Number(x.hours) || 0), 0), 0) * 10) / 10, pct: goalProgress(g) }; }).sort((a, b) => b.open - a.open);
   el.innerHTML = `
     <div class="toolbar"><h2><svg class="ic"><use href="#i-chart"/></svg> التقارير</h2><div class="toolbar-right"><button class="btn" id="repCsv"><svg class="ic"><use href="#i-download"/></svg> تصدير CSV</button><button class="btn" id="repPrint"><svg class="ic"><use href="#i-print"/></svg> طباعة</button></div></div>
     <div class="kpis">
@@ -493,6 +589,9 @@ export function renderReports(el) {
       <div class="kpi"><span class="kpi-label">نسبة الإنجاز</span><span class="kpi-value">${s.rate}%</span></div>
       <div class="kpi"><span class="kpi-label">أهداف مكتملة</span><span class="kpi-value">${s.completedGoals}/${s.goals}</span></div>
       <div class="kpi"><span class="kpi-label">متوسط أسبوعي</span><span class="kpi-value">${(doneW.reduce((a, b) => a + b, 0) / weeks).toFixed(1)}</span></div>
+      <div class="kpi"><span class="kpi-label">السرعة (آخر 4 أسابيع)</span><span class="kpi-value">${velocity}<small>/أسبوع</small></span></div>
+      <div class="kpi"><span class="kpi-label">الالتزام بالمواعيد</span><span class="kpi-value ${onTimeRate == null ? '' : onTimeRate >= 70 ? 'c-ok' : 'c-warn'}">${onTimeRate == null ? '—' : onTimeRate + '%'}</span></div>
+      <div class="kpi"><span class="kpi-label">ساعات مسجّلة (30 يوم)</span><span class="kpi-value">${hours30}<small> س</small></span></div>
     </div>
     <div class="grid-2">
       <div class="panel"><h2>الإنجاز خلال 8 أسابيع</h2><div class="chart"><canvas id="chWeeks"></canvas></div></div>
@@ -501,10 +600,16 @@ export function renderReports(el) {
     <div class="grid-2">
       <div class="panel"><h2>حسب المكلّف</h2>${perUser.length ? `<table class="table"><thead><tr><th>المستخدم</th><th>الكل</th><th>منجز</th><th>متأخر</th><th>النسبة</th></tr></thead><tbody>${perUser.map(r => `<tr><td>${avatar(r.u, 22)} ${esc(userLabel(r.u))}</td><td>${r.total}</td><td class="c-ok">${r.done}</td><td class="${r.late ? 'c-danger' : ''}">${r.late}</td><td><div class="progress sm"><div class="progress-bar" style="width:${r.total ? (r.done / r.total) * 100 : 0}%"></div></div></td></tr>`).join('')}</tbody></table>` : '<p class="muted">لا مهام مكلّفة.</p>'}</div>
       <div class="panel"><h2>حسب التصنيف</h2><div class="chart"><canvas id="chCat"></canvas></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="panel"><h2>حسب المشروع</h2>${perProject.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>المشروع</th><th>مفتوحة</th><th>منجزة</th><th>متأخرة</th><th>ساعات</th><th>التقدّم</th></tr></thead><tbody>${perProject.map(r => `<tr><td><a href="#project/${r.g.id}" class="goal-tag" style="--gc:${r.g.color || '#2563eb'}">${esc(r.g.name)}</a></td><td>${r.open}</td><td class="c-ok">${r.done}</td><td class="${r.late ? 'c-danger' : ''}">${r.late}</td><td>${r.hours || '—'}</td><td><div class="progress sm"><div class="progress-bar" style="width:${r.pct}%;background:${r.g.color || 'var(--primary)'}"></div></div></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا مشاريع.</p>'}</div>
+      <div class="panel"><h2>الساعات المسجّلة خلال 30 يوماً</h2>${byMemberProject.length ? `<table class="table"><thead><tr><th>العضو</th><th>المشروع</th><th>الساعات</th></tr></thead><tbody>${byMemberProject.map(r => `<tr><td>${avatar(r.u, 22)} ${esc(userLabel(r.u))}</td><td>${esc(goalById(r.gid)?.name || '—')}</td><td><strong>${r.h}</strong></td></tr>`).join('')}</tbody></table>` : '<p class="muted">لا ساعات مسجّلة. سجّل الوقت من بطاقة المهمة أو عبر وضع التركيز 🍅.</p>'}</div>
     </div>`;
   $('repCsv').onclick = exportCSV;
   $('repPrint').onclick = () => window.print();
-  if (!window.Chart) return;
+  ensureChart().then(() => { if ($('chWeeks')) drawReportCharts({ labels, doneW, createdW, byCat }); }).catch(() => {});
+}
+function drawReportCharts({ labels, doneW, createdW, byCat }) {
   const cs = getComputedStyle(document.documentElement);
   const c = { text: cs.getPropertyValue('--text-2').trim(), grid: cs.getPropertyValue('--border').trim(), primary: cs.getPropertyValue('--primary').trim(), ok: cs.getPropertyValue('--success').trim() };
   charts.push(new window.Chart($('chWeeks'), { type: 'bar', data: { labels, datasets: [{ label: 'منجزة', data: doneW, backgroundColor: c.ok + 'cc', borderRadius: 6 }, { label: 'مُضافة', data: createdW, backgroundColor: c.primary + '66', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { rtl: true, labels: { color: c.text, font: { family: 'Cairo' } } } }, scales: { x: { ticks: { color: c.text }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: c.text, precision: 0 }, grid: { color: c.grid } } } } }));
@@ -519,21 +624,52 @@ function exportCSV() {
 }
 
 // ================= الفريق (أدمن) =================
-export async function renderTeam(el) {
+let usersLoadedAt = 0;
+function memberStats(u) {
+  const now = Date.now();
+  const ts = state.tasks.filter(t => t.assignedToUid === u.uid || (t.assignedUserIds || []).includes(u.uid));
+  const open = ts.filter(t => !t.completed);
+  const weekAgo = isoDate(addDays(new Date(), -7));
+  const seen = toMillis(u.lastSeen);
+  return { ts, open, total: ts.length, done: ts.length - open.length, late: open.filter(t => taskBucket(t) === 'overdue').length, hours: Math.round(ts.reduce((a, t) => a + (t.timesheets || []).filter(x => x.uid === u.uid && x.date >= weekAgo).reduce((b, x) => b + (Number(x.hours) || 0), 0), 0) * 10) / 10, online: !!seen && now - seen < 10 * 60 * 1000, seen, goals: state.goals.filter(g => (g.assignedUserIds || []).includes(u.uid)).length };
+}
+export function renderTeam(el) {
   if (!state.isAdmin) { el.innerHTML = emptyState('shield', 'هذه الصفحة للمشرفين فقط'); return; }
-  el.innerHTML = `<p class="muted">جارٍ التحميل…</p>`;
-  await api.loadUsers();
-  const rows = state.users.map(u => { const ts = state.tasks.filter(t => t.assignedToUid === u.uid); return { ...u, total: ts.length, done: ts.filter(t => t.completed).length, goals: state.goals.filter(g => (g.assignedUserIds || []).includes(u.uid)).length }; });
+  // نرسم فوراً من البيانات الحالية، ونحدّث البروفايلات بالخلفية (يُعاد الرسم فقط إذا تغيّر شيء)
+  if (Date.now() - usersLoadedAt > 60000) { usersLoadedAt = Date.now(); api.loadUsers().catch(() => {}); }
+  if (!state.users.length) { el.innerHTML = `<div class="sk-rows"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`; return; }
+  const rows = state.users.map(u => ({ ...u, ...memberStats(u) }));
+  const online = rows.filter(r => r.online).length;
+  const link = `${location.origin}${location.pathname}`;
   el.innerHTML = `
-    <div class="toolbar"><h2><svg class="ic"><use href="#i-users"/></svg> الفريق <small class="hint">${rows.length} مستخدم</small></h2><div class="search"><svg class="ic"><use href="#i-search"/></svg><input type="search" id="teamQ" placeholder="ابحث بالبريد أو الاسم…"></div></div>
-    <div class="panel"><div class="table-wrap"><table class="table" id="teamTable"><thead><tr><th>المستخدم</th><th>الدور</th><th>الأهداف</th><th>المهام</th><th>آخر ظهور</th><th></th></tr></thead><tbody>${rows.map(u => `<tr data-uid="${u.uid}" data-q="${esc((u.email || '') + ' ' + (u.displayName || '')).toLowerCase()}">
-      <td><div class="who">${avatar(u.uid, 30)}<div><strong>${esc(u.displayName || u.email)}</strong><div class="hint">${esc(u.email || '')}</div></div></div></td>
+    <div class="toolbar"><h2><svg class="ic"><use href="#i-users"/></svg> الفريق <small class="hint">${rows.length} عضو · <span class="c-ok">${online} متصل</span></small></h2>
+      <div class="toolbar-right"><div class="search"><svg class="ic"><use href="#i-search"/></svg><input type="search" id="teamQ" placeholder="ابحث بالبريد أو الاسم…"></div><button class="btn" id="teamInvite"><svg class="ic"><use href="#i-send"/></svg> دعوة عضو</button></div></div>
+    <div class="panel"><div class="table-wrap"><table class="table" id="teamTable"><thead><tr><th>العضو</th><th>الدور</th><th>المشاريع</th><th>مفتوحة</th><th>متأخرة</th><th>منجزة</th><th>ساعات الأسبوع</th><th>آخر ظهور</th><th></th></tr></thead><tbody>${rows.map(u => `<tr data-uid="${u.uid}" data-q="${esc((u.email || '') + ' ' + (u.displayName || '')).toLowerCase()}">
+      <td><div class="who"><span class="online-dot ${u.online ? 'on' : ''}" title="${u.online ? 'متصل الآن' : 'غير متصل'}"></span>${avatar(u.uid, 30)}<div><button class="linkbtn" data-member="${u.uid}"><strong>${esc(u.displayName || u.email)}</strong></button><div class="hint">${esc(u.email || '')}</div></div></div></td>
       <td><span class="badge ${u.role === 'admin' ? 'st-done' : 'cat'}">${u.role === 'admin' ? 'مشرف' : 'مستخدم'}</span></td>
-      <td>${u.goals}</td><td>${u.done}/${u.total}</td><td class="hint">${u.lastSeen ? fmtDateTime(u.lastSeen) : '—'}</td>
-      <td>${u.uid !== state.user.uid ? `<button class="btn btn-sm" data-role="${u.role === 'admin' ? 'user' : 'admin'}">${u.role === 'admin' ? 'إزالة الإشراف' : 'ترقية لمشرف'}</button>` : '<span class="hint">أنت</span>'}</td>
+      <td>${u.goals}</td><td>${u.open}</td><td class="${u.late ? 'c-danger' : ''}">${u.late}</td><td class="c-ok">${u.done}</td><td>${u.hours || '—'}</td><td class="hint">${u.seen ? fmtDateTime(u.lastSeen) : '—'}</td>
+      <td><div class="btn-row" style="margin:0"><button class="btn btn-sm" data-member="${u.uid}">التفاصيل</button>${u.uid !== state.user.uid ? `<button class="btn btn-sm" data-role="${u.role === 'admin' ? 'user' : 'admin'}">${u.role === 'admin' ? 'إزالة الإشراف' : 'ترقية لمشرف'}</button>` : '<span class="hint">أنت</span>'}</div></td>
     </tr>`).join('')}</tbody></table></div></div>`;
   $('teamQ').oninput = (e) => { const q = e.target.value.toLowerCase(); el.querySelectorAll('tbody tr').forEach(tr => { tr.hidden = !tr.dataset.q.includes(q); }); };
-  el.querySelectorAll('[data-role]').forEach(b => { b.onclick = async () => { const uid = b.closest('tr').dataset.uid; if (await confirmDialog(`تغيير دور هذا المستخدم إلى ${b.dataset.role === 'admin' ? 'مشرف' : 'مستخدم'}؟`, { danger: false, okLabel: 'تغيير' })) { await api.setRole(uid, b.dataset.role); toast('تم تحديث الدور', { type: 'ok' }); renderTeam(el); } }; });
+  $('teamInvite').onclick = async () => { const email = await promptDialog('بريد العضو الجديد', '', { type: 'email', placeholder: 'name@email.com' }); if (!email) return; const subject = encodeURIComponent('دعوة للانضمام إلى سجل أهدافي'); const body = encodeURIComponent(`مرحباً،\n\nأدعوك للانضمام إلى فريقنا على «سجل أهدافي» لإدارة المشاريع والمهام.\nسجّل حسابك من هنا: ${link}\n\nبعد التسجيل سأضيفك إلى المشاريع.`); window.open(`mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`); copyText(link, 'فتحنا بريدك بالدعوة ونسخنا الرابط'); };
+  el.querySelectorAll('[data-role]').forEach(b => { b.onclick = async () => { const uid = b.closest('tr').dataset.uid; if (await confirmDialog(`تغيير دور هذا المستخدم إلى ${b.dataset.role === 'admin' ? 'مشرف' : 'مستخدم'}؟`, { danger: false, okLabel: 'تغيير' })) { await api.setRole(uid, b.dataset.role); toast('تم تحديث الدور', { type: 'ok' }); usersLoadedAt = 0; renderTeam(el); } }; });
+  el.querySelectorAll('[data-member]').forEach(b => { b.onclick = () => openMember(b.dataset.member); });
+}
+
+/** بطاقة العضو: إحصائياته ومهامه المفتوحة حسب المشروع + تكليف سريع */
+export function openMember(uid) {
+  const u = state.users.find(x => x.uid === uid); if (!u) return;
+  const s = memberStats(u);
+  const byGoal = groupBy(sortTasks(s.open), t => t.goalId);
+  $('memberBody').innerHTML = `
+    <div class="member-head">${avatar(u.uid, 52)}<div><h2 style="margin:0">${esc(u.displayName || u.email)} <span class="online-dot ${s.online ? 'on' : ''}"></span></h2><div class="hint">${esc(u.email || '')} · ${u.role === 'admin' ? 'مشرف' : 'مستخدم'} · آخر ظهور ${s.seen ? fmtDateTime(u.lastSeen) : '—'}</div></div></div>
+    <div class="member-stats"><div><strong>${s.open}</strong><span class="hint">مفتوحة</span></div><div><strong class="${s.late ? 'c-danger' : ''}">${s.late}</strong><span class="hint">متأخرة</span></div><div><strong class="c-ok">${s.done}</strong><span class="hint">منجزة</span></div></div>
+    <div class="btn-row"><button class="btn btn-primary btn-sm" id="memberAssign"><svg class="ic"><use href="#i-plus"/></svg> تكليف بمهمة</button><button class="btn btn-sm" id="memberTasks">كل مهامه</button></div>
+    ${byGoal.size ? [...byGoal.entries()].map(([gid, ts]) => `<h4 class="grp-title">${esc(goalById(gid)?.name || '—')} <small>${ts.length}</small></h4>${taskList(ts.slice(0, 6), { compact: true })}`).join('') : '<p class="muted" style="margin-top:.8rem">لا مهام مفتوحة.</p>'}`;
+  openModal('memberModal');
+  bindTaskList($('memberBody'));
+  $('memberAssign').onclick = () => { closeModal('memberModal'); const g = state.goals.find(x => !x.archived && !x.template && (x.assignedUserIds || []).includes(uid)); openTaskModal(null, g ? g.id : null, null, uid); };
+  $('memberTasks').onclick = () => { closeModal('memberModal'); Object.assign(filters.tasks, { assignee: uid, status: 'open', view: 'list', savedId: null }); location.hash = 'tasks'; window.dispatchEvent(new Event('hashchange')); };
 }
 
 // ================= سجل النشاط =================
@@ -566,19 +702,47 @@ export function renderSettings(el) {
         </div>
         <div class="panel"><h2>التفضيلات</h2>
           <label class="field"><span>المظهر</span><select id="setTheme"><option value="auto" ${p.theme === 'auto' ? 'selected' : ''}>تلقائي (حسب الجهاز)</option><option value="light" ${p.theme === 'light' ? 'selected' : ''}>فاتح</option><option value="dark" ${p.theme === 'dark' ? 'selected' : ''}>داكن</option></select></label>
+          <label class="field"><span>اللون الرئيسي</span><div class="swatches accent" id="setAccent">${[['blue', '#2563eb'], ['green', '#16a34a'], ['purple', '#7c3aed'], ['orange', '#ea580c'], ['pink', '#db2777'], ['teal', '#0d9488']].map(([k, c]) => `<button type="button" class="swatch ${(p.accent || 'blue') === k ? 'sel' : ''}" data-accent="${k}" style="background:${c}" aria-label="${k}"></button>`).join('')}</div></label>
+          <div class="grid-f">
+            <label class="field"><span>حجم الخط</span><select id="setFont"><option value="small" ${p.fontSize === 'small' ? 'selected' : ''}>صغير</option><option value="normal" ${!p.fontSize || p.fontSize === 'normal' ? 'selected' : ''}>عادي</option><option value="large" ${p.fontSize === 'large' ? 'selected' : ''}>كبير</option></select></label>
+            <label class="field"><span>بداية الأسبوع</span><select id="setWeek"><option value="6" ${Number(p.weekStart) !== 1 ? 'selected' : ''}>السبت</option><option value="1" ${Number(p.weekStart) === 1 ? 'selected' : ''}>الاثنين</option></select></label>
+          </div>
+          <div class="grid-f">
+            <label class="field"><span>الصفحة الافتتاحية</span><select id="setHome">${[['dashboard', 'لوحة التحكم'], ['tasks', 'المهام'], ['goals', 'المشاريع'], ['calendar', 'التقويم']].map(([k, v]) => `<option value="${k}" ${(p.home || 'dashboard') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+            <label class="field"><span>جلسة التركيز / الاستراحة (دقائق)</span><div class="grid-f"><input type="number" id="setFocus" min="5" max="120" value="${p.focusMin || 25}"><input type="number" id="setBreak" min="1" max="60" value="${p.breakMin || 5}"></div></label>
+          </div>
           <label class="switch"><input type="checkbox" id="setNotify" ${p.notify ? 'checked' : ''}><span>تنبيهات المتصفح للمهام المستحقة اليوم والمتأخرة</span></label>
           <label class="switch"><input type="checkbox" id="setCompact" ${p.compact ? 'checked' : ''}><span>عرض مكثّف (صفوف أقصر)</span></label>
         </div>
       </div>
       <div class="stack">
         <div class="panel"><h2>اختصارات لوحة المفاتيح</h2><table class="table kbd"><tbody>
-          <tr><td><kbd>N</kbd></td><td>مهمة جديدة</td></tr><tr><td><kbd>G</kbd></td><td>هدف جديد</td></tr><tr><td><kbd>/</kbd> أو <kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>بحث سريع</td></tr>
-          <tr><td><kbd>1</kbd>…<kbd>6</kbd></td><td>التنقل بين الصفحات</td></tr><tr><td><kbd>Esc</kbd></td><td>إغلاق أي نافذة</td></tr></tbody></table></div>
-        <div class="panel"><h2>البيانات</h2><div class="btn-row"><button class="btn btn-sm" id="setCsv"><svg class="ic"><use href="#i-download"/></svg> تصدير المهام CSV</button><button class="btn btn-sm" id="setJson"><svg class="ic"><use href="#i-download"/></svg> نسخة JSON</button>${isDemo() ? `<button class="btn btn-danger btn-sm" id="setDemoReset">إعادة تعيين البيانات التجريبية</button>` : ''}</div>
-          ${isDemo() ? `<p class="warn" style="margin-top:.75rem">أنت في الوضع التجريبي: البيانات على هذا الجهاز فقط. سجّل الخروج للعودة لشاشة الدخول.</p>` : ''}</div>
-        <div class="panel"><h2>عن التطبيق</h2><p class="muted">سجل أهدافي — الإصدار 2.0. أهداف، مهام، فريق، تقويم، تقارير، وسجل نشاط. يعمل بدون إنترنت ويُثبَّت كتطبيق.</p><div class="btn-row"><button class="btn btn-danger btn-sm" id="setSignOut"><svg class="ic"><use href="#i-logout"/></svg> تسجيل الخروج</button></div></div>
+          <tr><td><kbd>N</kbd> / <kbd>G</kbd></td><td>مهمة جديدة / مشروع جديد</td></tr><tr><td><kbd>/</kbd> أو <kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>بحث وأوامر</td></tr>
+          <tr><td><kbd>F</kbd> / <kbd>I</kbd></td><td>وضع التركيز / الإشعارات</td></tr>
+          <tr><td><kbd>1</kbd>…<kbd>6</kbd></td><td>التنقل بين الصفحات</td></tr><tr><td><kbd>?</kbd> / <kbd>Esc</kbd></td><td>كل الاختصارات / إغلاق</td></tr></tbody></table></div>
+        <div class="panel"><h2>البيانات</h2><div class="btn-row">
+            <button class="btn btn-sm" id="setCsv"><svg class="ic"><use href="#i-download"/></svg> تصدير CSV</button>
+            <button class="btn btn-sm" id="setJson"><svg class="ic"><use href="#i-download"/></svg> نسخة احتياطية JSON</button>
+            <label class="btn btn-sm"><svg class="ic"><use href="#i-upload"/></svg> استيراد JSON <input type="file" id="setImport" accept="application/json,.json" hidden></label>
+            <button class="btn btn-sm" id="setIcs"><svg class="ic"><use href="#i-cal"/></svg> تصدير للتقويم (.ics)</button>
+            <a class="btn btn-sm" href="#trash"><svg class="ic"><use href="#i-trash"/></svg> سلة المحذوفات <small>${(state.trash.goals || []).length + (state.trash.tasks || []).length}</small></a>
+            ${isDemo() ? `<button class="btn btn-danger btn-sm" id="setDemoReset">إعادة تعيين البيانات التجريبية</button>` : ''}</div>
+          <p class="hint" style="margin-top:.6rem">النسخة الاحتياطية تشمل المشاريع والمهام بكل تفاصيلها، ويمكن استيرادها في أي حساب كعناصر جديدة.</p>
+          ${isDemo() ? `<p class="warn">أنت في الوضع التجريبي: البيانات على هذا الجهاز فقط. سجّل الخروج للعودة لشاشة الدخول.</p>` : ''}</div>
+        <div class="panel"><h2>عن التطبيق</h2><p class="muted">سجل أهدافي — الإصدار 4.0. مشاريع على طريقة Odoo، مهام، فريق، تقويم، تقارير، إشعارات، وضع تركيز، وسلة محذوفات. يعمل بدون إنترنت ويُثبَّت كتطبيق.</p>
+          <div class="btn-row"><button class="btn btn-sm" id="setWhatsNew">ما الجديد</button><button class="btn btn-sm" id="setUpdate"><svg class="ic"><use href="#i-history"/></svg> تحديث التطبيق</button><button class="btn btn-danger btn-sm" id="setSignOut"><svg class="ic"><use href="#i-logout"/></svg> تسجيل الخروج</button></div></div>
       </div>
     </div>`;
+  $('setAccent').querySelectorAll('[data-accent]').forEach(b => { b.onclick = () => { setPref('accent', b.dataset.accent); $('setAccent').querySelectorAll('.swatch').forEach(x => x.classList.toggle('sel', x === b)); }; });
+  $('setFont').onchange = (e) => setPref('fontSize', e.target.value);
+  $('setWeek').onchange = (e) => setPref('weekStart', Number(e.target.value));
+  $('setHome').onchange = (e) => setPref('home', e.target.value);
+  $('setFocus').onchange = (e) => setPref('focusMin', Math.max(5, Math.min(120, Number(e.target.value) || 25)));
+  $('setBreak').onchange = (e) => setPref('breakMin', Math.max(1, Math.min(60, Number(e.target.value) || 5)));
+  $('setImport').onchange = (e) => { const f = e.target.files[0]; if (f) importJSON(f); e.target.value = ''; };
+  $('setIcs').onclick = () => exportICS(state.tasks, 'goals');
+  $('setWhatsNew').onclick = () => openModal('whatsNewModal');
+  $('setUpdate').onclick = async () => { try { if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); for (const r of regs) await r.unregister(); } if (window.caches) { const keys = await caches.keys(); for (const k of keys) await caches.delete(k); } } catch { /* ignore */ } toast('جارٍ إعادة التحميل بأحدث إصدار…'); setTimeout(() => location.reload(), 600); };
   $('setNameSave').onclick = async () => { const v = $('setName').value.trim(); await api.updateProfile({ displayName: v }); toast('تم الحفظ', { type: 'ok' }); };
   const r = $('setReset'); if (r) r.onclick = async () => { try { await api.resetPassword(state.user.email); toast('تم إرسال الرابط إلى بريدك', { type: 'ok' }); } catch { toast('تعذّر الإرسال', { type: 'err' }); } };
   $('setTheme').onchange = (e) => { setPref('theme', e.target.value); };
@@ -588,7 +752,7 @@ export function renderSettings(el) {
   };
   $('setCompact').onchange = (e) => setPref('compact', e.target.checked);
   $('setCsv').onclick = exportCSV;
-  $('setJson').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ goals: state.goals, tasks: state.tasks }, null, 2)], { type: 'application/json' })); a.download = `goals-backup-${isoDate()}.json`; a.click(); };
+  $('setJson').onclick = exportJSON;
   const dr = $('setDemoReset'); if (dr) dr.onclick = async () => { if (await confirmDialog('إعادة البيانات التجريبية لحالتها الأولى؟')) resetDemo(); };
   $('setSignOut').onclick = async () => { if (await confirmDialog('تسجيل الخروج؟', { danger: false, okLabel: 'خروج' })) api.signOut(); };
 }
@@ -628,7 +792,7 @@ export function openGoalModal(goal) {
 }
 
 // ================= نافذة المهمة =================
-export function openTaskModal(task, goalId, dueDate) {
+export function openTaskModal(task, goalId, dueDate, assignee) {
   const isEdit = !!task;
   const goals = state.goals.filter(g => !g.archived);
   if (!goals.length) { toast('أضف هدفاً أولاً', { type: 'err', action: 'هدف جديد', onAction: () => openGoalModal() }); return; }
@@ -641,10 +805,10 @@ export function openTaskModal(task, goalId, dueDate) {
   $('tNotes').value = task ? task.notes || '' : '';
   const fillAssignees = () => {
     const g = goalById($('tGoal').value);
-    const ids = new Set([...(g && g.assignedUserIds ? g.assignedUserIds : []), state.user.uid]);
+    const ids = new Set([...(g && g.assignedUserIds ? g.assignedUserIds : []), state.user.uid, ...(assignee ? [assignee] : [])]);
     const opts = [...ids].map(uid => { const u = state.users.find(x => x.uid === uid); return `<option value="${uid}">${esc(u ? (u.displayName || u.email) : uid === state.user.uid ? 'أنا' : uid)}</option>`; });
     $('tAssignee').innerHTML = `<option value="">— بدون مكلّف —</option>${opts.join('')}`;
-    $('tAssignee').value = task ? (task.assignedToUid || '') : state.user.uid;
+    $('tAssignee').value = task ? (task.assignedToUid || '') : (assignee || state.user.uid);
   };
   fillAssignees();
   $('tGoal').onchange = fillAssignees;

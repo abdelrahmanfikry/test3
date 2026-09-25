@@ -6,6 +6,24 @@
 
 ## المميزات
 
+### الإصدار 4: سرعة ومزايا يومية
+| المجال | التفاصيل |
+|---|---|
+| **سرعة التحميل** | Firebase يُحمَّل فقط خارج الوضع التجريبي، وSortable/Chart.js/Storage عند الحاجة فقط (`js/lib.js`)، `modulepreload` لكل الوحدات، شاشة بداية فورية وهياكل تحميل (skeleton)، Service Worker يتجاوز كاش HTTP عند التحديث ويُعلمك بالإصدار الجديد، وفهرس مهام مُخزَّن (memo) |
+| **الإشعارات** | جرس في الشريط العلوي: متأخرة، اليوم، تكليفات جديدة، أنشطة مستحقة، مواعيد المشاريع والمعالم؛ تعليم كمقروء؛ اختصار `I` |
+| **وضع التركيز 🍅** | مؤقّت بومودورو (مدد قابلة للضبط) مرتبط بمهمة، يسجّل كل جلسة كساعات على المهمة، إنجاز المهمة من الشاشة، عداد جلسات اليوم، اختصار `F` |
+| **التحديد المتعدد** | في قائمة المهام: إنجاز / أولوية / موعد / مكلّف / نقل لمشروع / حذف دفعة واحدة |
+| **سلة المحذوفات** | حذف ناعم للمهام والمشاريع مع «تراجع» فوري، استعادة أو حذف نهائي، وتنظيف تلقائي بعد 30 يوماً (`#trash`) |
+| **التقويم** | عرض أسبوعي بالسحب بين الأيام، بداية الأسبوع (سبت/اثنين)، تصدير `.ics` لـ Google Calendar / Outlook |
+| **لوحة التحكم** | خريطة حرارية للإنجاز (12 أسبوعاً)، الأيام السبعة القادمة، عبء العمل على الفريق |
+| **التقارير** | السرعة الأسبوعية، الالتزام بالمواعيد، الساعات المسجّلة لكل عضو ومشروع، جدول حسب المشروع |
+| **الفريق** | حالة الاتصال (آخر ظهور < 10 دقائق)، مفتوحة/متأخرة/ساعات الأسبوع، بطاقة العضو بمهامه وتكليف سريع، دعوة بالبريد؛ وإصلاح وميض الصفحة (حلقة إعادة رسم) |
+| **المهام** | تأجيل بنقرة، رابط مباشر `#task/<id>`، نسخ المهمة، سحب على الموبايل (يمين = إنجاز، يسار = تأجيل) |
+| **المشاريع** | مفضلة في القائمة الجانبية، نسخ المشروع، تصدير JSON، رابط مباشر |
+| **لوحة الأوامر** | `Ctrl+K`: بحث ضبابي عربي/إنجليزي في المهام والمشاريع والتاجز والأعضاء + أوامر + الأخيرة + تنقل بالأسهم |
+| **الإعدادات** | لون رئيسي، حجم خط، بداية الأسبوع، الصفحة الافتتاحية، مدد التركيز، نسخة احتياطية JSON **واستيراد**، تحديث التطبيق، «ما الجديد» |
+| **عام** | شريط عدم الاتصال، اختصارات `?`، تقليل الحركة، تركيز واضح للكيبورد |
+
 ### إدارة مشاريع على طريقة Odoo (الإصدار 3)
 | المجال | التفاصيل |
 |---|---|
@@ -38,6 +56,7 @@
 test3/
 ├── index.html         الهيكل + النوافذ + الأيقونات
 ├── css/style.css      نظام التصميم (tokens، فاتح/داكن، RTL، موبايل، طباعة)
+├── css/extras.css     الإصدار 4: ثيمات، إشعارات، تركيز، تحديد متعدد، تقويم أسبوعي
 ├── js/
 │   ├── app.js         الدخول، التنقل، البحث، الاختصارات، التنبيهات
 │   ├── data.js        طبقة البيانات: Firebase (نفس المشروع والمجموعات) أو وضع تجريبي محلي
@@ -47,6 +66,8 @@ test3/
 │   ├── project-page.js صفحة المشروع بتبويباتها
 │   ├── task-panel.js  بطاقة المهمة الكاملة + Chatter
 │   ├── kanban.js · gantt.js · activities.js
+│   ├── lib.js         تحميل المكتبات عند الحاجة (Sortable, Chart.js, Storage)
+│   ├── inbox.js · focus.js · bulk.js · palette.js · trash.js · backup.js · gestures.js
 │   ├── chatbot.js     مساعد التخطيط
 │   ├── ui.js          إشعارات، نوافذ، تأكيد، احتفال
 │   └── utils.js       تهريب HTML، تواريخ، ثوابت
@@ -61,13 +82,13 @@ test3/
 
 | المجموعة | الحقول المهمة |
 |---|---|
-| `userProfiles/{uid}` | `email, role (user/admin), displayName, photoURL, lastSeen` |
-| `goals/{id}` | `name, startDate, endDate, note, progress, createdBy, assignedUserIds[], visibility, visibilityMode, blockedUserIds[]` + جديد: `category, priority, color, archived, stages[], tags[], milestones[], manager, plannedHours, template` |
-| `tasks/{id}` | `name, dueDate, goalId, completed, assignedToUid, assignedToEmail, createdBy` + جديد: `priority, notes, order, completedAt, stageId, parentId, assignedUserIds[], tags[], starred, startDate, blockedBy[], plannedHours, timesheets[], checklist[], activities[], attachments[], recurrence` · تعليقات في `tasks/{id}/messages` |
+| `userProfiles/{uid}` | `email, role (user/admin), displayName, photoURL, lastSeen` + `savedFilters[], personalStages[], personalStageMap, favorites[]` |
+| `goals/{id}` | `name, startDate, endDate, note, progress, createdBy, assignedUserIds[], visibility, visibilityMode, blockedUserIds[]` + جديد: `category, priority, color, archived, stages[], tags[], milestones[], manager, plannedHours, template` · حذف ناعم: `deleted, deletedAt, deletedBy` |
+| `tasks/{id}` | `name, dueDate, goalId, completed, assignedToUid, assignedToEmail, createdBy` + جديد: `priority, notes, order, completedAt, stageId, parentId, assignedUserIds[], tags[], starred, startDate, blockedBy[], plannedHours, timesheets[], checklist[], activities[], attachments[], recurrence` · حذف ناعم: `deleted, deletedAt, deletedBy, deletedWithGoal` · تعليقات في `tasks/{id}/messages` |
 | `activity/{id}` | سجل النشاط (+ نسخة تحت كل هدف/مهمة) |
 | `mail/{id}` | رسائل لإضافة **Trigger Email** (اختيارية) |
 
-انشر [firestore.rules](firestore.rules) من Firebase Console. لتفعيل الدخول بجوجل: Authentication → Sign-in method → Google.
+انشر [firestore.rules](firestore.rules) من Firebase Console (قراءة المهام متاحة لأي مستخدم مسجّل لأن استعلامات المجموعة لا يمكن تقييدها بصلاحيات الهدف؛ الواجهة تعرض فقط مهام المشاريع المرئية). لتفعيل الدخول بجوجل: Authentication → Sign-in method → Google.
 
 ## التشغيل محلياً
 

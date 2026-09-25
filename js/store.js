@@ -9,6 +9,8 @@ export const state = {
   goals: [],
   tasks: [],
   activity: [],
+  trash: { goals: [], tasks: [] },
+  online: typeof navigator === 'undefined' ? true : navigator.onLine,
   loading: true,
   demo: false,
   view: 'dashboard',
@@ -20,12 +22,28 @@ export function subscribe(fn) { listeners.add(fn); return () => listeners.delete
 export function notify(reason = 'change') { for (const fn of listeners) { try { fn(state, reason); } catch (e) { console.error(e); } } }
 
 function loadPrefs() {
-  try { return { theme: 'auto', notify: false, compact: false, density: 'normal', ...JSON.parse(localStorage.getItem('goals.prefs') || '{}') }; } catch { return { theme: 'auto', notify: false, compact: false }; }
+  const d = { theme: 'auto', notify: false, compact: false, density: 'normal', accent: 'blue', fontSize: 'normal', weekStart: 6, home: 'dashboard', focusMin: 25, breakMin: 5, calView: 'month' };
+  try { return { ...d, ...JSON.parse(localStorage.getItem('goals.prefs') || '{}') }; } catch { return d; }
 }
 export function setPref(k, v) { state.prefs[k] = v; try { localStorage.setItem('goals.prefs', JSON.stringify(state.prefs)); } catch { /* ignore */ } notify('prefs'); }
 
 // ---------- مشتقات ----------
-export function goalTasks(goalId) { return state.tasks.filter(t => t.goalId === goalId); }
+let _tbg = null, _tbgRef = null;
+/** فهرس المهام حسب المشروع (يُعاد بناؤه فقط عند تغيّر مصفوفة المهام) */
+export function tasksByGoal() {
+  if (_tbgRef !== state.tasks) {
+    _tbgRef = state.tasks; _tbg = new Map();
+    for (const t of state.tasks) { const a = _tbg.get(t.goalId); if (a) a.push(t); else _tbg.set(t.goalId, [t]); }
+  }
+  return _tbg;
+}
+export function goalTasks(goalId) { return tasksByGoal().get(goalId) || []; }
+
+/** هل المهمة مكلّف بها المستخدم الحالي */
+export function isMine(t) { const me = state.user && state.user.uid; return !!me && (t.assignedToUid === me || (t.assignedUserIds || []).includes(me)); }
+
+export function favorites() { return (state.profile && state.profile.favorites) || []; }
+export function isFavorite(goalId) { return favorites().includes(goalId); }
 
 export function goalProgress(goal) {
   const ts = goalTasks(goal.id);

@@ -5,6 +5,8 @@ import { esc } from './utils.js';
  * opts: { columns:[{id,name,color,fold,done,limit}], items, colOf(item)->id, card(item)->html,
  *         onMove(itemId, colId, orderedIds), onOpen(itemId), onQuickAdd(colId, name), onColMenu(col, action), folded:Set }
  */
+import { ensureSortable } from './lib.js';
+
 export function renderKanban(container, opts) {
   const folded = opts.folded || new Set(opts.columns.filter(c => c.fold).map(c => c.id));
   const groups = new Map(opts.columns.map(c => [c.id, []]));
@@ -34,9 +36,11 @@ export function renderKanban(container, opts) {
     f.querySelector('[data-cancel]').onclick = () => { f.hidden = true; };
   });
   if (opts.onColMenu) container.querySelectorAll('[data-colmenu]').forEach(b => { b.onclick = (e) => { e.stopPropagation(); opts.onColMenu(opts.columns.find(c => c.id === b.dataset.colmenu), b); }; });
-  if (window.Sortable) {
+  // السحب: تُحمَّل مكتبة Sortable عند أول حاجة فقط
+  ensureSortable().then(S => {
+    if (!container.isConnected) return;
     container.querySelectorAll('.kcol-body').forEach(body => {
-      new window.Sortable(body, {
+      new S(body, {
         group: 'kanban', animation: 150, ghostClass: 'ghost', delay: 120, delayOnTouchOnly: true,
         onEnd: (ev) => {
           const colId = ev.to.dataset.body;
@@ -45,6 +49,6 @@ export function renderKanban(container, opts) {
         },
       });
     });
-  }
+  }).catch(() => {});
   return folded;
 }

@@ -3,8 +3,10 @@
 import { state, notify, userLabel, canEditTask } from './store.js';
 import { api, isDemo } from './data.js';
 import { esc, fmtDate, fmtDateTime, relativeDue, isoDate, addDays, uid, PRIORITIES, toMillis } from './utils.js';
-import { toast, confirmDialog, promptDialog } from './ui.js';
+import { toast, confirmDialog, promptDialog, popMenu, copyText } from './ui.js';
 import { projectStages, taskStage, stagePatch, completionPatch, subtasksOf, blockers, hoursSpent, checklistProgress, nextOccurrence, ACTIVITY_TYPES, RECURRENCE, TAG_COLORS } from './model.js';
+import { deleteTaskWithUndo, snoozeMenu } from './bulk.js';
+import { openFocus } from './focus.js';
 
 const $ = (id) => document.getElementById(id);
 let currentId = null, tab = 'details', messages = [], timerStart = null, timerTick = null;
@@ -20,6 +22,7 @@ export function openTask(id, initialTab) {
   d.hidden = false; $('taskDrawerBg').hidden = false;
   requestAnimationFrame(() => d.classList.add('open'));
   render();
+  document.dispatchEvent(new CustomEvent('goals:open', { detail: { type: 'task', id } }));
   api.loadMessages(id).then(m => { messages = m; if (currentId === id) renderChatter(); });
 }
 export function closeTask() { const d = $('taskDrawer'); d.classList.remove('open'); setTimeout(() => { d.hidden = true; }, 250); $('taskDrawerBg').hidden = true; currentId = null; }
@@ -54,6 +57,7 @@ function render() {
         ${parent ? `<span class="hint">↳ فرعية من <button class="linkbtn" data-open-task="${parent.id}">${esc(parent.name)}</button></span>` : ''}
         <span style="flex:1"></span>
         <button class="star ${t.starred ? 'on' : ''}" id="tpStar" title="أولوية بنجمة" ${can ? '' : 'disabled'}>★</button>
+        <button class="iconbtn" id="tpMore" title="المزيد"><svg class="ic"><use href="#i-dots"/></svg></button>
         ${can ? `<button class="iconbtn danger" id="tpDelete" title="حذف"><svg class="ic"><use href="#i-trash"/></svg></button>` : ''}
       </div>
       <input class="tp-title" id="tpName" value="${esc(t.name)}" ${can ? '' : 'readonly'} maxlength="140">
@@ -69,7 +73,19 @@ function render() {
   const op = d.querySelector('[data-open-project]'); if (op && op.dataset.openProject) op.onclick = () => { closeTask(); location.hash = `project/${op.dataset.openProject}`; };
   $('tpName').onchange = (e) => { const v = e.target.value.trim(); if (v && v !== t.name) patch({ name: v }); };
   $('tpStar').onclick = () => patch({ starred: !t.starred });
-  const del = $('tpDelete'); if (del) del.onclick = async () => { if (await confirmDialog(`حذف المهمة «${t.name}»${subs.length ? ` و${subs.length} مهمة فرعية` : ''}؟`, { okLabel: 'حذف' })) { for (const s of subs) await api.deleteTask(s.id); await api.deleteTask(t.id); closeTask(); toast('تم الحذف'); } };
+  const del = $('tpDelete'); if (del) del.onclick = async () => { if (await deleteTaskWithUndo(t)) { for (const s of subs) await api.deleteTask(s.id).catch(() => {}); closeTask(); } };
+  $('tpMore').onclick = (e) => {
+    const items = [
+      { label: 'نسخ رابط المهمة', icon: 'link', run: () => copyText(`${location.origin}${location.pathname}#task/${t.id}`, 'تم نسخ رابط المهمة') },
+      { label: 'وضع التركيز على هذه المهمة 🍅', icon: 'target', run: () => { closeTask(); openFocus(t.id); } },
+    ];
+    if (can) {
+      items.push({ label: 'تأجيل الموعد…', icon: 'cal', run: () => snoozeMenu(t, e.target.closest('button')) });
+      items.push({ label: 'تكرار المهمة (نسخة)', icon: 'copy', run: async () => { const id = await api.createTask({ name: `${t.name} (نسخة)`, goalId: t.goalId, stageId: t.stageId || null, priority: t.priority || 'medium', notes: t.notes || '', tags: t.tags || [], plannedHours: t.plannedHours || 0, dueDate: t.dueDate || null, startDate: t.startDate || null, assignedToUid: t.assignedToUid || state.user.uid, assignedUserIds: t.assignedUserIds || [], parentId: t.parentId || null, checklist: (t.checklist || []).map(c => ({ ...c, id: uid(), done: false })), recurrence: t.recurrence || null }); toast('تم إنشاء نسخة', { type: 'ok' }); if (id) openTask(id); } });
+      items.push({ label: t.completed ? 'إعادة فتح المهمة' : 'إنجاز المهمة ✓', icon: 'check', run: () => { const p = completionPatch(g, !t.completed); if (!t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp(); patch(p); } });
+    }
+    popMenu(e.target.closest('button'), items);
+  };
   d.querySelectorAll('[data-stage]').forEach(b => { b.onclick = () => moveToStage(t, g, b.dataset.stage); });
   renderTab(t, g, can, { assignees, tags, subs, spent, stages });
   renderChatter();

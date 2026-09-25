@@ -1,8 +1,11 @@
 // صفحة المشروع (على طريقة Odoo): نظرة عامة، كانبان، قائمة، جانت، معالم، إعدادات (مراحل، تاجز، خصوصية، قالب).
-import { state, sortTasks, userLabel, canEditGoal, goalProgress } from './store.js';
+import { state, sortTasks, userLabel, canEditGoal, goalProgress, isFavorite, favorites } from './store.js';
 import { api, isDemo } from './data.js';
 import { esc, fmtDate, relativeDue, isoDate, addDays, uid, PRIORITIES, CATEGORIES, daysFromToday } from './utils.js';
-import { toast, confirmDialog, promptDialog } from './ui.js';
+import { toast, confirmDialog, promptDialog, copyText } from './ui.js';
+import { ensureChart, ensureSortable } from './lib.js';
+import { duplicateProject, exportProject, exportICS } from './backup.js';
+import { deleteGoalWithUndo } from './bulk.js';
 import { projectStages, taskStage, stagePatch, projectStats, burndown, newStage, TAG_COLORS, subtaskProgress, blockers, checklistProgress, hoursSpent } from './model.js';
 import { renderKanban } from './kanban.js';
 import { renderGantt } from './gantt.js';
@@ -41,13 +44,15 @@ export function renderProject(el, id, tab = 'overview') {
   el.innerHTML = `
     <div class="pp-head" style="--gc:${g.color || '#2563eb'}">
       <a href="#goals" class="iconbtn" title="رجوع"><svg class="ic"><use href="#i-next"/></svg></a>
-      <div class="pp-title"><span class="goal-dot"></span><h1>${esc(g.name)}</h1>${g.template ? '<span class="badge cat">قالب</span>' : ''}${g.archived ? '<span class="badge st-archived">مؤرشف</span>' : ''}</div>
+      <div class="pp-title"><span class="goal-dot"></span><h1>${esc(g.name)}</h1>${g.template ? '<span class="badge cat">قالب</span>' : ''}${g.archived ? '<span class="badge st-archived">مؤرشف</span>' : ''}<button class="star ${isFavorite(g.id) ? 'on' : ''}" id="ppFav" title="إضافة للمفضلة (تظهر في القائمة الجانبية)">★</button></div>
       <div class="pp-meta"><span class="hint">${fmtDate(g.startDate)} → ${fmtDate(g.endDate)}</span>${g.manager ? `<span class="who">${avatar(g.manager, 20)} ${esc(userLabel(g.manager))}</span>` : ''}<span class="avatars">${(g.assignedUserIds || []).slice(0, 6).map(u => avatar(u, 22)).join('')}</span></div>
       <div class="pp-progress"><div class="progress"><div class="progress-bar" style="width:${st.pct}%;background:var(--gc)"></div></div><span>${st.pct}% · ${st.done}/${st.total} مهمة</span></div>
       <nav class="tabs">${TABS.map(([k, v]) => `<a href="#project/${id}/${k}" class="${tab === k ? 'on' : ''}">${v}</a>`).join('')}</nav>
     </div>
     <div id="ppBody"></div>`;
   const body = $('ppBody');
+  document.dispatchEvent(new CustomEvent('goals:open', { detail: { type: 'project', id } }));
+  $('ppFav').onclick = () => { const f = favorites(); api.updateProfile({ favorites: f.includes(id) ? f.filter(x => x !== id) : [...f, id].slice(-8) }); toast(f.includes(id) ? 'أُزيل من المفضلة' : 'أُضيف إلى المفضلة ★', { type: 'ok' }); };
   ({ overview: renderOverview, kanban: renderKan, list: renderList, gantt: renderGan, milestones: renderMilestones, settings: renderSettings }[tab] || renderOverview)(body, g, tasks, st, can);
 }
 
@@ -75,10 +80,11 @@ function renderOverview(body, g, tasks, st, can) {
       </div>
     </div>`;
   body.querySelectorAll('[data-open]').forEach(b => { b.onclick = () => openTask(b.dataset.open); });
-  if (window.Chart) {
+  ensureChart().then((Chart) => {
+    if (!$('ppBurn')) return;
     const cs = getComputedStyle(document.documentElement);
-    charts.push(new window.Chart($('ppBurn'), { type: 'line', data: { labels: bd.map(x => fmtDate(x.date, { day: 'numeric', month: 'short' })), datasets: [{ label: 'مهام متبقية', data: bd.map(x => x.remaining), borderColor: g.color || cs.getPropertyValue('--primary'), backgroundColor: (g.color || '#2563eb') + '22', fill: true, tension: .3, pointRadius: 0 }, { label: 'إجمالي', data: bd.map(x => x.total), borderColor: cs.getPropertyValue('--text-3'), borderDash: [4, 4], pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { rtl: true, labels: { color: cs.getPropertyValue('--text-2'), font: { family: 'Cairo' } } } }, scales: { x: { ticks: { color: cs.getPropertyValue('--text-3'), maxTicksLimit: 8 }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: cs.getPropertyValue('--text-3'), precision: 0 }, grid: { color: cs.getPropertyValue('--border') } } } } }));
-  }
+    charts.push(new Chart($('ppBurn'), { type: 'line', data: { labels: bd.map(x => fmtDate(x.date, { day: 'numeric', month: 'short' })), datasets: [{ label: 'مهام متبقية', data: bd.map(x => x.remaining), borderColor: g.color || cs.getPropertyValue('--primary'), backgroundColor: (g.color || '#2563eb') + '22', fill: true, tension: .3, pointRadius: 0 }, { label: 'إجمالي', data: bd.map(x => x.total), borderColor: cs.getPropertyValue('--text-3'), borderDash: [4, 4], pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { rtl: true, labels: { color: cs.getPropertyValue('--text-2'), font: { family: 'Cairo' } } } }, scales: { x: { ticks: { color: cs.getPropertyValue('--text-3'), maxTicksLimit: 8 }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: cs.getPropertyValue('--text-3'), precision: 0 }, grid: { color: cs.getPropertyValue('--border') } } } } }));
+  }).catch(() => {});
 }
 
 function renderKan(body, g, tasks, st, can) {
@@ -170,10 +176,23 @@ function renderSettings(body, g, tasks, st, can) {
         <label class="switch"><input type="checkbox" id="psTemplate" ${g.template ? 'checked' : ''}><span>استخدام هذا المشروع كقالب</span></label>
         <label class="switch"><input type="checkbox" id="psArchived" ${g.archived ? 'checked' : ''}><span>مؤرشف</span></label>
       </div>
+      <div class="panel"><h2>أدوات</h2><div class="btn-row">
+        <button class="btn btn-sm" id="psDup"><svg class="ic"><use href="#i-copy"/></svg> نسخ المشروع</button>
+        <button class="btn btn-sm" id="psExport"><svg class="ic"><use href="#i-download"/></svg> تصدير JSON</button>
+        <button class="btn btn-sm" id="psIcs"><svg class="ic"><use href="#i-cal"/></svg> تصدير للتقويم (.ics)</button>
+        <button class="btn btn-sm" id="psLink"><svg class="ic"><use href="#i-link"/></svg> نسخ الرابط</button>
+        <button class="btn btn-sm btn-danger" id="psDelete"><svg class="ic"><use href="#i-trash"/></svg> حذف المشروع</button>
+      </div><p class="hint">الحذف ينقل المشروع ومهامه إلى سلة المحذوفات ويمكن استعادته خلال 30 يوماً.</p></div>
       <div class="panel"><h2>المتابعون / الأعضاء</h2><div class="tp-people">${(g.assignedUserIds || []).map(u => `<span class="pill">${avatar(u, 20)} ${esc(userLabel(u))} <button data-rm-member="${u}" aria-label="إزالة">×</button></span>`).join('')}<select id="psAddMember" class="pill-add"><option value="">+ عضو</option>${state.users.filter(u => !(g.assignedUserIds || []).includes(u.uid)).map(u => `<option value="${u.uid}">${esc(u.displayName || u.email)}</option>`).join('')}</select></div></div>
     </div></div>`;
+  // أدوات
+  $('psDup').onclick = () => duplicateProject(g);
+  $('psExport').onclick = () => exportProject(g);
+  $('psIcs').onclick = () => exportICS(tasks, g.name.replace(/\s+/g, '-'));
+  $('psLink').onclick = () => copyText(`${location.origin}${location.pathname}#project/${g.id}`, 'تم نسخ رابط المشروع');
+  $('psDelete').onclick = async () => { if (await deleteGoalWithUndo(g, tasks.length)) location.hash = 'goals'; };
   // المراحل
-  if (window.Sortable) new window.Sortable($('stageList'), { animation: 150, handle: '.drag' });
+  ensureSortable().then(S => { if ($('stageList')) new S($('stageList'), { animation: 150, handle: '.drag' }); }).catch(() => {});
   $('stAdd').onclick = () => { const row = document.createElement('div'); row.className = 'stage-row'; row.dataset.id = uid(); row.innerHTML = `<span class="drag"><svg class="ic"><use href="#i-grip"/></svg></span><input type="color" value="#2563eb" data-f="color"><input type="text" value="" data-f="name" placeholder="اسم المرحلة" maxlength="40"><label class="switch small"><input type="checkbox" data-f="fold"><span>طيّ</span></label><label class="switch small"><input type="checkbox" data-f="done"><span>نهائية</span></label><input type="number" min="0" data-f="limit" placeholder="حد" style="width:64px"><button class="iconbtn danger" data-del="new" aria-label="حذف"><svg class="ic"><use href="#i-trash"/></svg></button>`; $('stageList').appendChild(row); row.querySelector('[data-f="name"]').focus(); row.querySelector('[data-del]').onclick = () => row.remove(); };
   body.querySelectorAll('[data-del]').forEach(b => { b.onclick = (e) => e.target.closest('.stage-row').remove(); });
   $('stSave').onclick = async () => {

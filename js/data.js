@@ -1,7 +1,8 @@
 // طبقة البيانات: Firebase (نفس مشروع النسخة القديمة ونفس المجموعات) أو وضع تجريبي محلي.
 // المجموعات: userProfiles, goals, tasks, activity, mail (Trigger Email extension).
 import { state, notify } from './store.js';
-import { uid, isoDate, addDays } from './utils.js';
+import { uid, isoDate, addDays, toMillis } from './utils.js';
+import { ensureStorage } from './lib.js';
 
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBj9dkTsf22p4GpLrVzZr1qdC2UFWoCi2Q',
@@ -16,6 +17,11 @@ const FIREBASE_CONFIG = {
 let auth = null, db = null, FV = null, storage = null;
 let unsub = [];
 let adapter = null;
+let usersSig = '', presenceTimer = null, purgeTimer = null;
+const TRASH_MS = 30 * 86400000;
+
+function splitTasks(all) { state.trash.tasks = all.filter(t => t.deleted); state.tasks = all.filter(t => !t.deleted); }
+function splitGoals(all) { state.trash.goals = all.filter(g => g.deleted); return all.filter(g => !g.deleted); }
 
 export function isDemo() { return state.demo; }
 
@@ -27,11 +33,10 @@ const fb = {
     auth = window.firebase.auth();
     db = window.firebase.firestore();
     FV = window.firebase.firestore.FieldValue;
-    try { storage = window.firebase.storage ? window.firebase.storage() : null; } catch { storage = null; }
     try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch { /* ignore */ }
     auth.onAuthStateChanged(async (u) => {
-      detach();
-      if (!u) { state.user = null; state.profile = null; state.isAdmin = false; state.goals = []; state.tasks = []; onUser(null); return; }
+      detach(); clearInterval(presenceTimer); clearTimeout(purgeTimer);
+      if (!u) { state.user = null; state.profile = null; state.isAdmin = false; state.goals = []; state.tasks = []; state.trash = { goals: [], tasks: [] }; usersSig = ''; onUser(null); return; }
       state.user = { uid: u.uid, email: u.email || '', displayName: u.displayName || '', photoURL: u.photoURL || '' };
       await fb.ensureProfile(u);
       attach();
@@ -50,6 +55,8 @@ const fb = {
         ref.update({ lastSeen: FV.serverTimestamp(), ...(u.displayName && !state.profile.displayName ? { displayName: u.displayName } : {}) }).catch(() => {});
       }
       state.isAdmin = state.profile.role === 'admin';
+      // حضور: تحديث «آخر ظهور» كل 4 دقائق أثناء فتح الصفحة
+      presenceTimer = setInterval(() => { if (document.visibilityState === 'visible' && navigator.onLine) ref.update({ lastSeen: FV.serverTimestamp() }).catch(() => {}); }, 4 * 60 * 1000);
     } catch (e) { console.error('profile', e); state.profile = { role: 'user' }; state.isAdmin = false; }
   },
   signIn: (email, pw) => auth.signInWithEmailAndPassword(email.trim(), pw),
@@ -64,29 +71,34 @@ const fb = {
     state.loading = true; notify('loading');
     const onErr = (label) => (e) => { console.error(label, e); state.loading = false; notify('error'); };
     if (state.isAdmin) {
-      unsub.push(db.collection('goals').orderBy('createdAt', 'desc').onSnapshot(s => { state.goals = s.docs.map(d => ({ id: d.id, ...d.data() })); state.loading = false; notify('goals'); }, onErr('goals')));
-      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot(s => { state.tasks = s.docs.map(d => ({ id: d.id, ...d.data() })); notify('tasks'); }, onErr('tasks')));
+      unsub.push(db.collection('goals').orderBy('createdAt', 'desc').onSnapshot(s => { state.goals = splitGoals(s.docs.map(d => ({ id: d.id, ...d.data() }))); state.loading = false; notify('goals'); }, onErr('goals')));
+      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot(s => { splitTasks(s.docs.map(d => ({ id: d.id, ...d.data() }))); notify('tasks'); }, onErr('tasks')));
     } else {
       let assigned = {}, pub = {};
       const merge = () => {
         const m = new Map();
         Object.values(pub).forEach(g => { if (!(g.blockedUserIds || []).includes(u.uid)) m.set(g.id, g); });
         Object.values(assigned).forEach(g => m.set(g.id, g));
-        state.goals = [...m.values()].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        state.goals = splitGoals([...m.values()].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
         state.loading = false; notify('goals');
       };
       unsub.push(db.collection('goals').where('assignedUserIds', 'array-contains', u.uid).onSnapshot(s => { assigned = {}; s.forEach(d => { assigned[d.id] = { id: d.id, ...d.data() }; }); merge(); }, onErr('goals-assigned')));
       unsub.push(db.collection('goals').where('visibility', '==', 'public').onSnapshot(s => { pub = {}; s.forEach(d => { pub[d.id] = { id: d.id, ...d.data() }; }); merge(); }, onErr('goals-public')));
-      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot(s => { state.tasks = s.docs.map(d => ({ id: d.id, ...d.data() })); notify('tasks'); }, onErr('tasks')));
+      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot(s => { splitTasks(s.docs.map(d => ({ id: d.id, ...d.data() }))); notify('tasks'); }, onErr('tasks')));
     }
     // البروفايلات: للأدمن الكل، ولغيره نحمّل عند الحاجة
     fb.loadUsers().catch(() => {});
+    // تنظيف سلة المحذوفات (أقدم من 30 يوماً) بعد استقرار البيانات
+    purgeTimer = setTimeout(() => fb.autoPurge().catch(() => {}), 10000);
   },
   async loadUsers() {
     try {
       const s = await db.collection('userProfiles').orderBy('email').get();
-      state.users = s.docs.map(d => ({ uid: d.id, ...d.data() }));
-      notify('users');
+      const list = s.docs.map(d => ({ uid: d.id, ...d.data() }));
+      const sig = list.map(u => `${u.uid}|${u.role}|${u.displayName || ''}|${u.photoURL || ''}|${toMillis(u.lastSeen)}|${JSON.stringify(u.favorites || [])}`).join(';');
+      state.users = list;
+      // لا نُشعر المشتركين إلا إذا تغيّر شيء فعلاً (يمنع حلقة إعادة رسم صفحة الفريق)
+      if (sig !== usersSig) { usersSig = sig; notify('users'); }
     } catch (e) { console.warn('users', e); }
     return state.users;
   },
@@ -112,13 +124,30 @@ const fb = {
     await db.collection('goals').doc(id).update({ ...patch, updatedAt: FV.serverTimestamp() });
     fb.log('update', 'goal', id, patch);
   },
+  /** حذف ناعم: ينقل المشروع ومهامه إلى سلة المحذوفات */
   async deleteGoal(id) {
+    const s = await db.collection('tasks').where('goalId', '==', id).get();
+    const batch = db.batch();
+    s.forEach(d => { if (!d.data().deleted) batch.update(d.ref, { deleted: true, deletedAt: FV.serverTimestamp(), deletedWithGoal: id }); });
+    batch.update(db.collection('goals').doc(id), { deleted: true, deletedAt: FV.serverTimestamp(), deletedBy: state.user.uid, updatedAt: FV.serverTimestamp() });
+    await batch.commit();
+    fb.log('delete', 'goal', id, {});
+  },
+  async restoreGoal(id) {
+    const s = await db.collection('tasks').where('goalId', '==', id).get();
+    const batch = db.batch();
+    s.forEach(d => { if (d.data().deletedWithGoal === id) batch.update(d.ref, { deleted: false, deletedAt: null, deletedWithGoal: null }); });
+    batch.update(db.collection('goals').doc(id), { deleted: false, deletedAt: null, deletedBy: null, updatedAt: FV.serverTimestamp() });
+    await batch.commit();
+    fb.log('update', 'goal', id, { restored: true });
+  },
+  async purgeGoal(id) {
     const s = await db.collection('tasks').where('goalId', '==', id).get();
     const batch = db.batch();
     s.forEach(d => batch.delete(d.ref));
     batch.delete(db.collection('goals').doc(id));
     await batch.commit();
-    fb.log('delete', 'goal', id, {});
+    fb.log('delete', 'goal', id, { purged: true });
   },
   async createTask(t) {
     const u = state.user;
@@ -151,11 +180,28 @@ const fb = {
       }
     }
   },
+  /** حذف ناعم: تنتقل المهمة إلى سلة المحذوفات ويمكن استعادتها */
   async deleteTask(id) {
     const t = state.tasks.find(x => x.id === id);
-    await db.collection('tasks').doc(id).delete();
-    fb.log('delete', 'task', id, { goalId: t && t.goalId });
+    await db.collection('tasks').doc(id).update({ deleted: true, deletedAt: FV.serverTimestamp(), deletedBy: state.user.uid, updatedAt: FV.serverTimestamp() });
+    fb.log('delete', 'task', id, { goalId: t && t.goalId, name: t && t.name });
     if (t) fb.syncProgress(t.goalId);
+  },
+  async restoreTask(id) {
+    await db.collection('tasks').doc(id).update({ deleted: false, deletedAt: null, deletedBy: null, deletedWithGoal: null, updatedAt: FV.serverTimestamp() });
+    fb.log('update', 'task', id, { restored: true });
+    const t = state.trash.tasks.find(x => x.id === id); if (t) fb.syncProgress(t.goalId);
+  },
+  async purgeTask(id) {
+    await db.collection('tasks').doc(id).delete();
+    fb.log('delete', 'task', id, { purged: true });
+  },
+  async autoPurge() {
+    const cutoff = Date.now() - TRASH_MS;
+    const mine = (x) => state.isAdmin || x.deletedBy === state.user.uid || x.createdBy === state.user.uid;
+    const old = (list) => list.filter(x => toMillis(x.deletedAt) && toMillis(x.deletedAt) < cutoff && mine(x));
+    for (const g of old(state.trash.goals)) await fb.purgeGoal(g.id).catch(() => {});
+    for (const t of old(state.trash.tasks).filter(t => !t.deletedWithGoal)) await fb.purgeTask(t.id).catch(() => {});
   },
   async reorderTasks(ids) {
     const batch = db.batch();
@@ -188,6 +234,7 @@ const fb = {
     return { ...doc, createdAt: Date.now() };
   },
   async uploadAttachment(taskId, file) {
+    if (!storage) { try { await ensureStorage(); storage = window.firebase.storage(); } catch { storage = null; } }
     if (!storage) throw new Error('storage-unavailable');
     if (file.size > 10 * 1024 * 1024) throw new Error('too-large');
     const ref = storage.ref(`tasks/${taskId}/${Date.now()}_${file.name}`);
@@ -301,18 +348,27 @@ const demo = {
     demo.refresh();
     onUser(state.user);
   },
-  refresh() { state.goals = [...demo.data.goals].sort((a, b) => b.createdAt - a.createdAt); state.tasks = [...demo.data.tasks]; state.loading = false; notify('goals'); notify('tasks'); },
+  refresh() {
+    const gs = [...demo.data.goals].sort((a, b) => b.createdAt - a.createdAt);
+    state.trash = { goals: gs.filter(g => g.deleted), tasks: demo.data.tasks.filter(t => t.deleted) };
+    state.goals = gs.filter(g => !g.deleted); state.tasks = demo.data.tasks.filter(t => !t.deleted);
+    state.loading = false; notify('goals'); notify('tasks');
+  },
   attach() { demo.refresh(); },
-  async loadUsers() { state.users = demo.data.users; notify('users'); return state.users; },
+  async loadUsers() { if (state.users !== demo.data.users) { state.users = demo.data.users; notify('users'); } return state.users; },
   async loadActivity() { state.activity = [...demo.data.activity].sort((a, b) => b.createdAt - a.createdAt).slice(0, 100); notify('activity'); return state.activity; },
   async signOut() { state.demo = false; localStorage.removeItem('goals.demoOn'); location.hash = ''; location.reload(); },
   async createGoal(g) { const u = state.user; const doc = { id: uid(), ...g, progress: 0, createdBy: u.uid, createdByEmail: u.email, createdAt: Date.now(), updatedAt: Date.now(), assignedUserIds: g.assignedUserIds || [u.uid], visibility: g.visibility || 'private', visibilityMode: g.visibilityMode || 'private', blockedUserIds: g.blockedUserIds || [], archived: false }; demo.data.goals.push(doc); demo.log('create', 'goal', doc.id, { name: g.name }); demo.save(); demo.refresh(); return doc.id; },
   async updateGoal(id, patch) { const g = demo.data.goals.find(x => x.id === id); if (g) Object.assign(g, patch, { updatedAt: Date.now() }); demo.log('update', 'goal', id, patch); demo.save(); demo.refresh(); },
-  async deleteGoal(id) { demo.data.goals = demo.data.goals.filter(x => x.id !== id); demo.data.tasks = demo.data.tasks.filter(t => t.goalId !== id); demo.log('delete', 'goal', id, {}); demo.save(); demo.refresh(); },
+  async deleteGoal(id) { const g = demo.data.goals.find(x => x.id === id); if (g) { g.deleted = true; g.deletedAt = Date.now(); g.deletedBy = state.user.uid; } demo.data.tasks.forEach(t => { if (t.goalId === id && !t.deleted) { t.deleted = true; t.deletedAt = Date.now(); t.deletedWithGoal = id; } }); demo.log('delete', 'goal', id, {}); demo.save(); demo.refresh(); },
+  async restoreGoal(id) { const g = demo.data.goals.find(x => x.id === id); if (g) { g.deleted = false; g.deletedAt = null; } demo.data.tasks.forEach(t => { if (t.deletedWithGoal === id) { t.deleted = false; t.deletedAt = null; t.deletedWithGoal = null; } }); demo.save(); demo.refresh(); },
+  async purgeGoal(id) { demo.data.goals = demo.data.goals.filter(x => x.id !== id); demo.data.tasks = demo.data.tasks.filter(t => t.goalId !== id); demo.save(); demo.refresh(); },
   async createTask(t) { const u = state.user; const a = state.users.find(x => x.uid === t.assignedToUid); const doc = { id: uid(), ...t, completed: false, completedAt: null, createdBy: u.uid, createdByEmail: u.email, assignedToUid: t.assignedToUid || null, assignedToEmail: a ? a.email : null, createdAt: Date.now(), updatedAt: Date.now() }; demo.data.tasks.push(doc); demo.log('create', 'task', doc.id, { name: t.name, goalId: t.goalId }); demo.save(); demo.refresh(); return doc.id; },
   async updateTask(id, patch) { const t = demo.data.tasks.find(x => x.id === id); if (t) { if (patch.assignedToUid !== undefined) { const a = state.users.find(x => x.uid === patch.assignedToUid); patch.assignedToEmail = a ? a.email : null; } Object.assign(t, patch, { updatedAt: Date.now() }); } demo.log('update', 'task', id, patch); demo.save(); demo.refresh(); },
   async toggleTask(id, completed) { const t = demo.data.tasks.find(x => x.id === id); if (t) { t.completed = completed; t.completedAt = completed ? Date.now() : null; t.updatedAt = Date.now(); } demo.log('update', 'task', id, { completed }); demo.save(); demo.refresh(); },
-  async deleteTask(id) { demo.data.tasks = demo.data.tasks.filter(x => x.id !== id); demo.log('delete', 'task', id, {}); demo.save(); demo.refresh(); },
+  async deleteTask(id) { const t = demo.data.tasks.find(x => x.id === id); if (t) { t.deleted = true; t.deletedAt = Date.now(); t.deletedBy = state.user.uid; } demo.log('delete', 'task', id, { name: t && t.name }); demo.save(); demo.refresh(); },
+  async restoreTask(id) { const t = demo.data.tasks.find(x => x.id === id); if (t) { t.deleted = false; t.deletedAt = null; t.deletedWithGoal = null; } demo.save(); demo.refresh(); },
+  async purgeTask(id) { demo.data.tasks = demo.data.tasks.filter(x => x.id !== id); demo.save(); demo.refresh(); },
   async reorderTasks(ids) { ids.forEach((id, i) => { const t = demo.data.tasks.find(x => x.id === id); if (t) t.order = i; }); demo.save(); demo.refresh(); },
   async setRole(u, role) { const x = demo.data.users.find(y => y.uid === u); if (x) x.role = role; demo.save(); notify('users'); },
   async updateProfile(patch) { Object.assign(demo.data.users[0], patch); state.profile = demo.data.users[0]; demo.save(); notify('profile'); },
@@ -331,11 +387,13 @@ const demo = {
 };
 
 // ================= واجهة موحّدة =================
-export function init(onUser) {
+export async function init(onUser) {
   const demoOn = location.hash.includes('demo') || localStorage.getItem('goals.demoOn') === '1';
   state.demo = demoOn;
   adapter = demoOn ? demo : fb;
   if (demoOn) localStorage.setItem('goals.demoOn', '1');
+  // في وضع Firebase ننتظر تحميل SDK (يُحمَّل من index.html فقط عند الحاجة)
+  if (!demoOn && window.__fbReady) { try { await window.__fbReady; } catch { /* ignore */ } }
   adapter.init(onUser);
 }
 export function enterDemo() { localStorage.setItem('goals.demoOn', '1'); location.hash = 'dashboard'; location.reload(); }

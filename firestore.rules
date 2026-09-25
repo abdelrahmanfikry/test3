@@ -38,7 +38,8 @@ service cloud.firestore {
     }
 
     match /tasks/{taskId} {
-      allow read: if signedIn() && canSeeGoal(get(/databases/$(database)/documents/goals/$(resource.data.goalId)).data);
+      // القراءة لأي مستخدم مسجّل: التطبيق يستعلم المجموعة كاملة (onSnapshot) ولا يمكن لقواعد تعتمد على get() السماح باستعلام مجموعة
+      allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid
         && canSeeGoal(get(/databases/$(database)/documents/goals/$(request.resource.data.goalId)).data);
       allow update, delete: if signedIn() && (isAdmin()

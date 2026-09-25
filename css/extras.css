@@ -1,0 +1,107 @@
+/* ===== الإصدار 4: سرعة، إشعارات، تركيز، تحديد متعدد، سلة، تقويم أسبوعي، ثيمات ===== */
+
+/* الألوان الرئيسية (accent) */
+[data-accent="green"] { --primary: #16a34a; --primary-2: #15803d; --primary-soft: #dcfce7; }
+[data-accent="purple"] { --primary: #7c3aed; --primary-2: #6d28d9; --primary-soft: #ede9fe; }
+[data-accent="orange"] { --primary: #ea580c; --primary-2: #c2410c; --primary-soft: #ffedd5; }
+[data-accent="pink"] { --primary: #db2777; --primary-2: #be185d; --primary-soft: #fce7f3; }
+[data-accent="teal"] { --primary: #0d9488; --primary-2: #0f766e; --primary-soft: #ccfbf1; }
+[data-theme="dark"][data-accent="green"] { --primary: #4ade80; --primary-2: #22c55e; --primary-soft: #14532d; }
+[data-theme="dark"][data-accent="purple"] { --primary: #a78bfa; --primary-2: #8b5cf6; --primary-soft: #3b0764; }
+[data-theme="dark"][data-accent="orange"] { --primary: #fb923c; --primary-2: #f97316; --primary-soft: #7c2d12; }
+[data-theme="dark"][data-accent="pink"] { --primary: #f472b6; --primary-2: #ec4899; --primary-soft: #831843; }
+[data-theme="dark"][data-accent="teal"] { --primary: #2dd4bf; --primary-2: #14b8a6; --primary-soft: #134e4a; }
+[data-font="small"] body { font-size: 14px; } [data-font="large"] body { font-size: 17px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* شاشة البداية */
+.splash { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; background: var(--bg); color: var(--text); }
+.splash-box { display: flex; flex-direction: column; align-items: center; gap: .8rem; animation: fade .3s; }
+.splash-logo { width: 64px; height: 64px; border-radius: 18px; background: var(--primary); color: var(--on-primary); display: grid; place-items: center; box-shadow: var(--shadow-lg); } .splash-logo .ic { width: 34px; height: 34px; }
+.splash-spin { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin .8s linear infinite; }
+
+/* هياكل التحميل */
+.skeleton { position: relative; overflow: hidden; background: var(--surface-3); border-radius: var(--rs); min-height: 1em; }
+.skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 60%, transparent), transparent); animation: shimmer 1.3s infinite; }
+@keyframes shimmer { to { transform: translateX(100%); } }
+.sk-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; margin-bottom: 1rem; } .sk-kpis .skeleton { height: 72px; }
+.sk-rows .skeleton { height: 54px; margin-bottom: .5rem; }
+.sk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; } .sk-cards .skeleton { height: 210px; border-radius: var(--r); }
+
+/* شريط عدم الاتصال */
+.offline-bar { background: var(--warning-soft); color: var(--warning); text-align: center; padding: .35rem .8rem; font-size: .85rem; font-weight: 700; }
+
+/* الشريط العلوي: إشعارات، تركيز، مؤقّت */
+.inbox-wrap { position: relative; }
+.iconbtn.on { background: var(--primary-soft); color: var(--primary); }
+.inbox-badge { position: absolute; top: -4px; inset-inline-end: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--danger); color: #fff; font-size: .68rem; font-weight: 800; display: grid; place-items: center; }
+.inbox-panel { position: absolute; top: calc(100% + 8px); inset-inline-end: 0; width: 360px; max-width: calc(100vw - 1.5rem); max-height: 70vh; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: var(--shadow-lg); z-index: 60; animation: fade .15s; }
+.inbox-head { display: flex; align-items: center; gap: .6rem; padding: .7rem .9rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); } .inbox-head .hint { flex: 1; font-size: .78rem; }
+.inbox-item { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: start; padding: .6rem .9rem; border: none; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; } .inbox-item:hover { background: var(--surface-2); } .inbox-item.read { opacity: .65; }
+.inbox-ico { font-size: 1.2rem; width: 28px; text-align: center; } .inbox-main { flex: 1; min-width: 0; display: flex; flex-direction: column; } .inbox-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .inbox-item .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+.timer-pill { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .6rem; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: .8rem; cursor: pointer; border: none; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { .inbox-panel { position: fixed; top: var(--topbar); inset-inline: .5rem; width: auto; } .timer-pill span { display: none; } }
+
+/* وضع التركيز */
+.focus-overlay { position: fixed; inset: 0; z-index: 300; background: var(--bg); display: flex; flex-direction: column; animation: fade .25s; overflow: auto; }
+.focus-top { display: flex; align-items: center; gap: .8rem; padding: .8rem 1rem; }
+.focus-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; padding: 1rem; text-align: center; }
+.focus-ring { position: relative; width: min(280px, 70vw); aspect-ratio: 1; } .focus-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); } .focus-ring .ring-bg { fill: none; stroke: var(--surface-3); stroke-width: 10; } .focus-ring .ring-fg { fill: none; stroke: var(--primary); stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset .4s; } .focus-main.break .ring-fg { stroke: var(--success); }
+.focus-time { position: absolute; inset: 0; display: grid; place-items: center; font-size: clamp(2.6rem, 10vw, 4.2rem); font-weight: 800; font-variant-numeric: tabular-nums; }
+.focus-task { display: flex; flex-direction: column; gap: .5rem; align-items: center; width: min(520px, 100%); } .focus-task-name { font-size: 1.25rem; font-weight: 800; } .focus-task select { max-width: 100%; }
+.btn-row.center { justify-content: center; } .btn-lg { padding: .75rem 1.6rem; font-size: 1.05rem; } .btn-ok { background: var(--success-soft); color: var(--success); border-color: transparent; } .btn-ok:hover { background: var(--success); color: #fff; }
+
+/* التحديد المتعدد */
+.check.sel span { border-radius: 6px; } .check.sel input:checked + span { background: var(--primary); border-color: var(--primary); }
+.bulk-bar { position: fixed; bottom: calc(1rem + env(safe-area-inset-bottom, 0)); inset-inline-start: 50%; transform: translateX(50%); z-index: 150; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--shadow-lg); padding: .45rem .8rem; max-width: calc(100vw - 1.5rem); animation: fade .2s; } [dir="ltr"] .bulk-bar { transform: translateX(-50%); }
+.bulk-count { font-size: .9rem; padding: 0 .4rem; }
+@media (max-width: 900px) { .bulk-bar { bottom: calc(4.6rem + env(safe-area-inset-bottom, 0)); border-radius: var(--r); } }
+.popmenu { position: fixed; z-index: 400; min-width: 190px; max-height: 60vh; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); box-shadow: var(--shadow-lg); padding: .3rem; animation: fade .12s; }
+.popmenu button { display: flex; align-items: center; gap: .5rem; width: 100%; text-align: start; padding: .5rem .7rem; border: none; background: transparent; color: var(--text); border-radius: 8px; cursor: pointer; font-weight: 600; white-space: nowrap; } .popmenu button:hover { background: var(--surface-3); } .popmenu button.danger { color: var(--danger); } .popmenu .goal-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+/* السحب على الموبايل */
+.task.swiping { position: relative; z-index: 2; } .task.swipe-done { background: var(--success-soft); } .task.swipe-snooze { background: var(--warning-soft); }
+
+/* سلة المحذوفات */
+.trash-list { display: flex; flex-direction: column; gap: .4rem; }
+.trash-row { display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: var(--rs); background: var(--surface-2); } .trash-main { flex: 1; min-width: 0; } .trash-main strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* لوحة التحكم: خريطة حرارية، الأسبوع القادم، عبء العمل */
+.heatmap { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px); gap: 3px; overflow-x: auto; padding-bottom: .3rem; direction: ltr; }
+.heatmap i { width: 12px; height: 12px; border-radius: 3px; background: var(--surface-3); } .heatmap i.l1 { background: color-mix(in srgb, var(--success) 35%, var(--surface-3)); } .heatmap i.l2 { background: color-mix(in srgb, var(--success) 60%, var(--surface-3)); } .heatmap i.l3 { background: var(--success); } .heatmap i.today { outline: 2px solid var(--primary); outline-offset: -1px; }
+.heat-legend { display: flex; gap: .3rem; align-items: center; font-size: .72rem; color: var(--text-3); margin-top: .3rem; } .heat-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: .4rem; }
+.week-day { border: 1px solid var(--border); border-radius: var(--rs); padding: .45rem .3rem; text-align: center; background: var(--surface-2); cursor: pointer; display: flex; flex-direction: column; gap: .1rem; } .week-day:hover { border-color: var(--primary); } .week-day.today { border-color: var(--primary); background: var(--primary-soft); } .week-day .wd-name { font-size: .7rem; color: var(--text-3); font-weight: 700; } .week-day .wd-num { font-weight: 800; font-size: 1.05rem; } .week-day .wd-count { font-size: .72rem; color: var(--text-2); } .week-day.busy .wd-count { color: var(--warning); font-weight: 800; }
+.workload { display: flex; flex-direction: column; gap: .45rem; } .wl-row { display: grid; grid-template-columns: 130px 1fr auto; gap: .6rem; align-items: center; font-size: .85rem; } .wl-row .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wl-bar { height: 10px; background: var(--surface-3); border-radius: 999px; overflow: hidden; display: flex; } .wl-bar i { display: block; height: 100%; } .wl-bar .late { background: var(--danger); } .wl-bar .open { background: var(--primary); }
+
+/* التقويم الأسبوعي */
+.cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .5rem; }
+.cw-day { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); min-height: 220px; display: flex; flex-direction: column; } .cw-day.today { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); } .cw-day.over { background: var(--primary-soft); }
+.cw-head { padding: .45rem .5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; font-size: .82rem; font-weight: 800; } .cw-head small { color: var(--text-3); font-weight: 700; }
+.cw-body { flex: 1; padding: .35rem; display: flex; flex-direction: column; gap: .3rem; }
+.cw-task { font-size: .78rem; padding: .3rem .45rem; border-radius: 8px; background: var(--surface-2); border-inline-start: 3px solid var(--gc, var(--primary)); cursor: grab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; } .cw-task.done { opacity: .5; text-decoration: line-through; } .cw-task.ghost { opacity: .3; }
+.cw-add { border: 1px dashed var(--border); background: transparent; border-radius: 8px; color: var(--text-3); font-size: .78rem; padding: .25rem; cursor: pointer; } .cw-add:hover { color: var(--primary); border-color: var(--primary); }
+@media (max-width: 900px) { .cal-week { grid-template-columns: repeat(2, 1fr); } .cw-day { min-height: 120px; } }
+@media (max-width: 560px) { .cal-week { grid-template-columns: 1fr; } }
+
+/* الفريق */
+.online-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); display: inline-block; } .online-dot.on { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+.member-head { display: flex; align-items: center; gap: .8rem; }
+.member-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: .8rem 0; } .member-stats div { background: var(--surface-2); border-radius: var(--rs); padding: .5rem; text-align: center; } .member-stats strong { display: block; font-size: 1.3rem; }
+
+/* المفضلة في القائمة الجانبية */
+.nav-sec { font-size: .7rem; color: var(--text-3); font-weight: 800; padding: .8rem .8rem .2rem; letter-spacing: .02em; }
+.nav.fav a { font-size: .88rem; } .nav.fav .goal-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+/* لوحة الأوامر */
+.sr { display: flex; align-items: center; gap: .6rem; width: 100%; text-align: start; padding: .55rem .7rem; border: none; background: transparent; color: var(--text); border-radius: var(--rs); cursor: pointer; } .sr:hover, .sr.sel { background: var(--surface-3); } .sr .hint { margin-inline-start: auto; font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; } .sr .done { text-decoration: line-through; color: var(--text-3); } .sr kbd { font-size: .7rem; } .sr .goal-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* جداول ومتفرقات */
+.table.kbd td:first-child { white-space: nowrap; }
+.whats-new li { margin-bottom: .35rem; }
+.swatches.accent .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; } .swatches.accent .swatch.sel { border-color: var(--text); }
+.kpi.small .kpi-value { font-size: 1.2rem; }
+.print-only { display: none; }
+@media print { .print-only { display: block; } .bulk-bar, .inbox-panel, .focus-overlay, .offline-bar { display: none !important; } }
