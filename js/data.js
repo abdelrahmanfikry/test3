@@ -13,7 +13,7 @@ const FIREBASE_CONFIG = {
   measurementId: 'G-8S5SLY6S2Y',
 };
 
-let auth = null, db = null, FV = null;
+let auth = null, db = null, FV = null, storage = null;
 let unsub = [];
 let adapter = null;
 
@@ -27,6 +27,7 @@ const fb = {
     auth = window.firebase.auth();
     db = window.firebase.firestore();
     FV = window.firebase.firestore.FieldValue;
+    try { storage = window.firebase.storage ? window.firebase.storage() : null; } catch { storage = null; }
     try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch { /* ignore */ }
     auth.onAuthStateChanged(async (u) => {
       detach();
@@ -170,6 +171,42 @@ const fb = {
     if (patch.displayName != null && auth.currentUser) auth.currentUser.updateProfile({ displayName: patch.displayName }).catch(() => {});
     state.profile = { ...state.profile, ...patch }; notify('profile');
   },
+  // ----- Odoo-like: تعليقات، مرفقات، إنشاء من قالب، إنشاء مهام دفعة -----
+  async loadMessages(taskId) {
+    try { const s = await db.collection('tasks').doc(taskId).collection('messages').orderBy('createdAt', 'asc').limit(200).get(); return s.docs.map(d => ({ id: d.id, ...d.data() })); }
+    catch (e) { console.warn('messages', e); return []; }
+  },
+  async addMessage(taskId, msg) {
+    const u = state.user;
+    const doc = { ...msg, uid: u.uid, email: u.email || '', name: (state.profile && state.profile.displayName) || u.displayName || '', createdAt: FV.serverTimestamp() };
+    await db.collection('tasks').doc(taskId).collection('messages').add(doc);
+    const t = state.tasks.find(x => x.id === taskId);
+    if (t && msg.type === 'comment') {
+      const to = new Set([...(t.assignedUserIds || []), t.assignedToUid, t.createdBy, ...(msg.mentions || [])].filter(x => x && x !== u.uid));
+      fb.mail(state.users.filter(x => to.has(x.uid)).map(x => x.email), `تعليق جديد على «${t.name}»`, `<p><strong>${doc.name || doc.email}</strong>: ${msg.text}</p>`);
+    }
+    return { ...doc, createdAt: Date.now() };
+  },
+  async uploadAttachment(taskId, file) {
+    if (!storage) throw new Error('storage-unavailable');
+    if (file.size > 10 * 1024 * 1024) throw new Error('too-large');
+    const ref = storage.ref(`tasks/${taskId}/${Date.now()}_${file.name}`);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    const att = { id: Date.now().toString(36), name: file.name, size: file.size, type: file.type, url, uid: state.user.uid, at: Date.now() };
+    await db.collection('tasks').doc(taskId).update({ attachments: FV.arrayUnion(att), updatedAt: FV.serverTimestamp() });
+    return att;
+  },
+  async createTasksBatch(list) {
+    const u = state.user;
+    const batch = db.batch();
+    for (const t of list) {
+      const ref = t.id ? db.collection('tasks').doc(t.id) : db.collection('tasks').doc();
+      const { id, ...rest } = t;
+      batch.set(ref, { ...rest, createdBy: u.uid, createdByEmail: u.email || '', assignedToUid: rest.assignedToUid || null, assignedToEmail: null, createdAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp() });
+    }
+    await batch.commit();
+  },
   /** يحدّث حقل progress في الهدف (للتوافق مع النسخة القديمة) بعد أي تغيير في مهامه */
   syncProgress(goalId) {
     if (!goalId) return;
@@ -229,7 +266,29 @@ const demo = {
       T('t10', 'g3', 'تصميم الهوية', d(-40), true, 'high', other, 40), T('t11', 'g3', 'ربط بوابة الدفع', d(-6), true, 'high', me, 3), T('t12', 'g3', 'اختبار الطلبات', d(-2), false, 'high', me), T('t13', 'g3', 'إطلاق الحملة الإعلانية', d(4), false, 'medium', other),
       ...Array.from({ length: 12 }, (_, i) => T('b' + i, 'g4', `كتاب ${i + 1}`, d(-190 + i * 15), true, 'low', me, 190 - i * 15)),
     ];
-    const users = [{ uid: me, email: 'me@demo.app', role: 'admin', displayName: 'أنا (تجريبي)' }, { uid: other, email: 'sara@demo.app', role: 'user', displayName: 'سارة' }, { uid: 'demo-omar', email: 'omar@demo.app', role: 'user', displayName: 'عمر' }];
+    // مزايا Odoo في البيانات التجريبية: مراحل، تاجز، معالم، مهام فرعية، ساعات، أنشطة، تكرار، تبعيات، قالب
+    goals[0].stages = [{ id: 'new', name: 'جديد', color: '#64748b', fold: false, done: false }, { id: 'progress', name: 'قيد التنفيذ', color: '#2563eb', fold: false, done: false }, { id: 'review', name: 'مراجعة', color: '#d97706', fold: false, done: false }, { id: 'done', name: 'منجز', color: '#16a34a', fold: true, done: true }];
+    goals[0].tags = [{ id: 'tg1', name: 'فرونت', color: '#2563eb' }, { id: 'tg2', name: 'مشروع', color: '#7c3aed' }, { id: 'tg3', name: 'عاجل', color: '#dc2626' }];
+    goals[0].milestones = [{ id: 'm1', name: 'إنهاء الأساسيات', date: d(-4), done: true }, { id: 'm2', name: 'أول مشروع كامل', date: d(15), done: false }];
+    goals[0].manager = me; goals[0].plannedHours = 60;
+    goals[2].stages = [{ id: 'todo', name: 'للتنفيذ', color: '#64748b', fold: false, done: false }, { id: 'doing', name: 'جارٍ', color: '#2563eb', fold: false, done: false }, { id: 'qa', name: 'اختبار', color: '#d97706', fold: false, done: false }, { id: 'live', name: 'مُطلق', color: '#16a34a', fold: true, done: true }];
+    goals[2].milestones = [{ id: 'm3', name: 'الإطلاق التجريبي', date: d(-10), done: true }, { id: 'm4', name: 'الإطلاق الرسمي', date: d(4), done: false }];
+    goals.push({ id: 'g5', name: 'قالب: إطلاق منتج', startDate: d(0), endDate: d(60), note: 'قالب جاهز بمراحل ومهام نموذجية.', category: 'work', priority: 'medium', color: '#0891b2', createdBy: me, createdByEmail: 'me@demo.app', createdAt: now - 5 * 86400000, updatedAt: now, assignedUserIds: [me], visibility: 'private', visibilityMode: 'private', blockedUserIds: [], archived: false, template: true, stages: [{ id: 'idea', name: 'فكرة', color: '#64748b', fold: false, done: false }, { id: 'build', name: 'بناء', color: '#2563eb', fold: false, done: false }, { id: 'launch', name: 'إطلاق', color: '#16a34a', fold: true, done: true }], tags: [{ id: 'tg9', name: 'تسويق', color: '#db2777' }], milestones: [{ id: 'm9', name: 'MVP', date: d(30), done: false }] });
+    const tIdx = (id) => tasks.find(t => t.id === id);
+    Object.assign(tIdx('t3'), { stageId: 'progress', tags: ['tg1', 'tg3'], plannedHours: 6, timesheets: [{ id: 'ts1', uid: me, date: d(-1), hours: 1.5, note: 'قراءة الفصل الأول' }, { id: 'ts2', uid: me, date: d(0), hours: 2, note: 'تمارين' }], checklist: [{ id: 'c1', text: 'المتغيرات والأنواع', done: true }, { id: 'c2', text: 'الدوال', done: true }, { id: 'c3', text: 'المصفوفات', done: false }], activities: [{ id: 'a1', type: 'reminder', summary: 'مراجعة ملخص الفصل', due: d(0), uid: me, done: false }], startDate: d(-3) });
+    Object.assign(tIdx('t4'), { stageId: 'new', tags: ['tg1'], blockedBy: ['t3'], plannedHours: 4, startDate: d(1) });
+    Object.assign(tIdx('t5'), { stageId: 'new', tags: ['tg2'], assignedUserIds: [me, other], plannedHours: 12, startDate: d(5) });
+    Object.assign(tIdx('t1'), { stageId: 'done', tags: ['tg1'], startDate: d(-25) }); Object.assign(tIdx('t2'), { stageId: 'done', tags: ['tg2'], startDate: d(-12) });
+    tasks.push({ id: 'st1', goalId: 'g1', parentId: 't5', name: 'تصميم الواجهة', dueDate: d(6), completed: true, completedAt: now - 86400000, priority: 'medium', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: me, assignedToEmail: 'me@demo.app', createdAt: now - 3 * 86400000, updatedAt: now, stageId: 'done', order: 0 });
+    tasks.push({ id: 'st2', goalId: 'g1', parentId: 't5', name: 'منطق الإضافة والحذف', dueDate: d(8), completed: false, completedAt: null, priority: 'high', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: other, assignedToEmail: 'sara@demo.app', createdAt: now - 3 * 86400000, updatedAt: now, stageId: 'progress', order: 1 });
+    Object.assign(tIdx('t6'), { recurrence: { freq: 'weekly', interval: 1 }, activities: [{ id: 'a2', type: 'call', summary: 'حجز حصة مع المدرّب', due: d(-1), uid: me, done: false }] });
+    Object.assign(tIdx('t12'), { stageId: 'qa', startDate: d(-5), plannedHours: 8, timesheets: [{ id: 'ts3', uid: me, date: d(-2), hours: 3, note: 'اختبار سيناريوهات الدفع' }] });
+    Object.assign(tIdx('t13'), { stageId: 'todo', startDate: d(2), blockedBy: ['t12'], activities: [{ id: 'a3', type: 'meeting', summary: 'اجتماع فريق التسويق', due: d(2), uid: other, done: false }] });
+    Object.assign(tIdx('t10'), { stageId: 'live' }); Object.assign(tIdx('t11'), { stageId: 'live' });
+    tasks.push({ id: 'tp1', goalId: 'g5', name: 'تحديد الجمهور', dueDate: d(7), startDate: d(0), completed: false, completedAt: null, priority: 'high', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: null, assignedToEmail: null, createdAt: now, updatedAt: now, stageId: 'idea', order: 0, checklist: [{ id: 'c9', text: 'استبيان', done: false }, { id: 'c10', text: 'مقابلات', done: false }] });
+    tasks.push({ id: 'tp2', goalId: 'g5', name: 'بناء MVP', dueDate: d(30), startDate: d(7), completed: false, completedAt: null, priority: 'high', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: null, assignedToEmail: null, createdAt: now, updatedAt: now, stageId: 'build', order: 1, blockedBy: ['tp1'] });
+    tasks.push({ id: 'tp3', goalId: 'g5', name: 'حملة الإطلاق', dueDate: d(45), startDate: d(30), completed: false, completedAt: null, priority: 'medium', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: null, assignedToEmail: null, createdAt: now, updatedAt: now, stageId: 'launch', order: 2, tags: ['tg9'] });
+    const users = [{ uid: me, email: 'me@demo.app', role: 'admin', displayName: 'أنا (تجريبي)', personalStages: null, personalStageMap: { t3: 'today', t4: 'week', t6: 'today' }, savedFilters: [{ id: 'sf1', name: 'عاجل ومتأخر', filters: { priority: 'high', status: 'open', group: 'due' } }] }, { uid: other, email: 'sara@demo.app', role: 'user', displayName: 'سارة' }, { uid: 'demo-omar', email: 'omar@demo.app', role: 'user', displayName: 'عمر' }];
     const activity = [];
     return { users, goals, tasks, activity };
   },
@@ -257,6 +316,16 @@ const demo = {
   async reorderTasks(ids) { ids.forEach((id, i) => { const t = demo.data.tasks.find(x => x.id === id); if (t) t.order = i; }); demo.save(); demo.refresh(); },
   async setRole(u, role) { const x = demo.data.users.find(y => y.uid === u); if (x) x.role = role; demo.save(); notify('users'); },
   async updateProfile(patch) { Object.assign(demo.data.users[0], patch); state.profile = demo.data.users[0]; demo.save(); notify('profile'); },
+  async loadMessages(taskId) { const t = demo.data.tasks.find(x => x.id === taskId); return t && t._messages ? [...t._messages] : []; },
+  async addMessage(taskId, msg) { const t = demo.data.tasks.find(x => x.id === taskId); if (!t) return null; t._messages = t._messages || []; const doc = { id: uid(), ...msg, uid: state.user.uid, email: state.user.email, name: state.profile.displayName || '', createdAt: Date.now() }; t._messages.push(doc); demo.save(); return doc; },
+  async uploadAttachment(taskId, file) {
+    if (file.size > 400 * 1024) throw new Error('too-large');
+    const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+    const att = { id: uid(), name: file.name, size: file.size, type: file.type, url, uid: state.user.uid, at: Date.now() };
+    const t = demo.data.tasks.find(x => x.id === taskId); if (t) { t.attachments = [...(t.attachments || []), att]; demo.save(); demo.refresh(); }
+    return att;
+  },
+  async createTasksBatch(list) { const u = state.user; for (const t of list) demo.data.tasks.push({ ...t, id: t.id || uid(), createdBy: u.uid, createdByEmail: u.email, assignedToUid: t.assignedToUid || null, assignedToEmail: null, createdAt: Date.now(), updatedAt: Date.now() }); demo.save(); demo.refresh(); },
   log(actionType, entityType, entityId, payload) { demo.data.activity.push({ id: uid(), actionType, entityType, entityId, payload, actorUid: state.user.uid, actorEmail: state.user.email, createdAt: Date.now() }); },
   resetPassword: async () => {}, signIn: async () => {}, signUp: async () => {}, signInGoogle: async () => {},
 };

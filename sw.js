@@ -1,6 +1,6 @@
 // Service worker: ملفات الموقع من الكاش أولاً، والمكتبات شبكة أولاً مع كاش احتياطي.
-const VERSION = 'goals-v2.0.0';
-const ASSETS = ['./', './index.html', './css/style.css', './js/app.js', './js/views.js', './js/store.js', './js/data.js', './js/ui.js', './js/utils.js', './js/chatbot.js', './manifest.webmanifest', './icons/icon.svg'];
+const VERSION = 'goals-v3.0.0';
+const ASSETS = ['./', './index.html', './css/style.css', './js/app.js', './js/views.js', './js/store.js', './js/data.js', './js/ui.js', './js/utils.js', './js/chatbot.js', './js/model.js', './js/kanban.js', './js/gantt.js', './js/task-panel.js', './js/project-page.js', './js/activities.js', './css/project.css', './manifest.webmanifest', './icons/icon.svg'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION && k !== VERSION + '-ext').map(k => caches.delete(k)))).then(() => self.clients.claim())); });

@@ -3,12 +3,18 @@ import { state, notify, goalTasks, goalProgress, goalStatus, visibleGoals, taskB
 import { api, isDemo, resetDemo } from './data.js';
 import { esc, fmtDate, fmtDateTime, relativeDue, daysFromToday, isoDate, addDays, toMillis, PRIORITIES, CATEGORIES, GOAL_COLORS, QUOTES, groupBy } from './utils.js';
 import { toast, openModal, closeModal, confirmDialog, promptDialog, celebrate, setBusy } from './ui.js';
+import { projectStages, taskStage, stagePatch, completionPatch, subtaskProgress, blockers, checklistProgress, cloneFromTemplate, DEFAULT_STAGES, DEFAULT_PERSONAL_STAGES, myActivities, activityState, ACTIVITY_TYPES, hoursSpent } from './model.js';
+import { openTask, spawnRecurrence } from './task-panel.js';
+import { renderKanban } from './kanban.js';
+import { renderGantt } from './gantt.js';
+import { kanbanCard } from './project-page.js';
 
 const $ = (id) => document.getElementById(id);
 const BUCKETS = { overdue: 'متأخرة', today: 'اليوم', week: 'هذا الأسبوع', later: 'لاحقاً', noDate: 'بدون موعد', done: 'منجزة' };
 const STATUS = { active: ['نشط', 'st-active'], late: ['متأخر', 'st-late'], done: ['مكتمل', 'st-done'], archived: ['مؤرشف', 'st-archived'] };
 
-export const filters = { goals: { q: '', status: 'all', category: 'all', sort: 'created' }, tasks: { q: '', goal: 'all', assignee: 'all', priority: 'all', status: 'open', group: 'due' }, calendarMonth: null, activityType: 'all' };
+export const filters = { goals: { q: '', status: 'all', category: 'all', sort: 'created', templates: false }, tasks: { q: '', goal: 'all', assignee: 'all', priority: 'all', status: 'open', group: 'due', view: 'list', tag: 'all', star: false, savedId: null }, calendarMonth: null, activityType: 'all' };
+let kanbanFolded = null;
 
 // ================= مكوّنات صغيرة =================
 function goalById(id) { return state.goals.find(g => g.id === id); }
@@ -32,8 +38,9 @@ function emptyState(icon, title, sub, btn) {
 // ================= لوحة التحكم =================
 export function renderDashboard(el) {
   const s = stats();
-  const goals = visibleGoals();
+  const goals = visibleGoals().filter(g => !g.template);
   const myOpen = state.tasks.filter(t => !t.completed && goals.some(g => g.id === t.goalId));
+  const acts = myActivities(state.tasks, state.user.uid).filter(a => activityState(a) !== 'planned').slice(0, 5);
   const overdue = sortTasks(myOpen.filter(t => taskBucket(t) === 'overdue'));
   const today = sortTasks(myOpen.filter(t => taskBucket(t) === 'today'));
   const week = sortTasks(myOpen.filter(t => taskBucket(t) === 'week'));
@@ -77,6 +84,10 @@ export function renderDashboard(el) {
           ${nearGoals.length ? nearGoals.map(({ g, n }) => `<div class="mini-goal" data-open-goal="${g.id}">${ring(goalProgress(g), 40, g.color)}<div class="mini-goal-body"><strong>${esc(g.name)}</strong><span class="hint ${n < 0 ? 'c-danger' : n <= 3 ? 'c-warn' : ''}">${n < 0 ? `متأخر ${-n} يوم` : n === 0 ? 'ينتهي اليوم' : `باقي ${n} يوم`} · ${goalTasks(g.id).filter(t => !t.completed).length} مهمة مفتوحة</span></div></div>`).join('') : `<p class="muted">لا توجد أهداف تنتهي خلال أسبوعين.</p>`}
         </div>
         <div class="panel">
+          <div class="panel-head"><h2><svg class="ic"><use href="#i-history"/></svg> أنشطة مستحقة</h2><a href="#activities" class="link">كل الأنشطة →</a></div>
+          ${acts.length ? acts.map(a => `<div class="act ${activityState(a) === 'overdue' ? 'late' : ''}"><span class="act-ico">${ACTIVITY_TYPES[a.type] ? ACTIVITY_TYPES[a.type][1] : '✅'}</span><div class="act-main"><strong>${esc(a.summary || '')}</strong><div class="hint"><button class="linkbtn" data-open-task="${a.task.id}">${esc(a.task.name)}</button> · ${a.due ? relativeDue(a.due) : ''}</div></div></div>`).join('') : `<p class="muted">لا أنشطة مستحقة اليوم.</p>`}
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2><svg class="ic"><use href="#i-user"/></svg> مهامي المكلّف بها</h2></div>
           ${mine.length ? `<p class="muted small">${mine.length} مهمة مفتوحة مكلّف بها أنت</p>${taskList(sortTasks(mine).slice(0, 4), { compact: true })}` : `<p class="muted">لا توجد مهام مكلّف بها حالياً.</p>`}
         </div>
@@ -85,7 +96,8 @@ export function renderDashboard(el) {
   bindTaskList(el);
   el.querySelector('[data-act="add-task"]').onclick = () => openTaskModal();
   el.querySelector('[data-act="add-goal"]').onclick = () => openGoalModal();
-  el.querySelectorAll('[data-open-goal]').forEach(x => { x.onclick = () => openGoalDrawer(x.dataset.openGoal); });
+  el.querySelectorAll('[data-open-goal]').forEach(x => { x.onclick = () => { location.hash = 'project/' + x.dataset.openGoal; }; });
+  el.querySelectorAll('[data-open-task]').forEach(x => { x.onclick = () => openTask(x.dataset.openTask, 'activities'); });
 }
 
 // ================= الأهداف =================
@@ -93,6 +105,7 @@ export function renderGoals(el) {
   const f = filters.goals;
   let list = state.goals.filter(g => {
     const st = goalStatus(g);
+    if (f.templates !== !!g.template) return false;
     if (f.status === 'all' && st === 'archived') return false;
     if (f.status !== 'all' && st !== f.status) return false;
     if (f.category !== 'all' && (g.category || 'other') !== f.category) return false;
@@ -105,8 +118,9 @@ export function renderGoals(el) {
     if (f.sort === 'progress') return goalProgress(b) - goalProgress(a);
     return toMillis(b.createdAt) - toMillis(a.createdAt);
   });
-  const counts = { all: state.goals.filter(g => !g.archived).length, active: 0, late: 0, done: 0, archived: 0 };
-  state.goals.forEach(g => { counts[goalStatus(g)]++; });
+  const counts = { all: state.goals.filter(g => !g.archived && !g.template).length, active: 0, late: 0, done: 0, archived: 0 };
+  state.goals.filter(g => !g.template).forEach(g => { counts[goalStatus(g)]++; });
+  const templates = state.goals.filter(g => g.template);
   el.innerHTML = `
     <div class="toolbar">
       <div class="seg" role="tablist">${['all', 'active', 'late', 'done', 'archived'].map(k => `<button class="${f.status === k ? 'active' : ''}" data-status="${k}">${k === 'all' ? 'الكل' : STATUS[k][0]} <small>${counts[k]}</small></button>`).join('')}</div>
@@ -114,7 +128,9 @@ export function renderGoals(el) {
         <div class="search"><svg class="ic"><use href="#i-search"/></svg><input type="search" id="goalsQ" placeholder="ابحث في الأهداف…" value="${esc(f.q)}"></div>
         <select id="goalsCat"><option value="all">كل التصنيفات</option>${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${f.category === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
         <select id="goalsSort"><option value="created" ${f.sort === 'created' ? 'selected' : ''}>الأحدث</option><option value="deadline" ${f.sort === 'deadline' ? 'selected' : ''}>الأقرب موعداً</option><option value="progress" ${f.sort === 'progress' ? 'selected' : ''}>الأعلى تقدماً</option><option value="name" ${f.sort === 'name' ? 'selected' : ''}>الاسم</option></select>
-        <button class="btn btn-primary" id="goalsAdd"><svg class="ic"><use href="#i-plus"/></svg> هدف جديد</button>
+        <button class="btn ${f.templates ? 'btn-primary' : ''}" id="goalsTpl" title="القوالب"><svg class="ic"><use href="#i-archive"/></svg> قوالب <small>${templates.length}</small></button>
+        ${templates.length ? `<button class="btn" id="goalsFromTpl"><svg class="ic"><use href="#i-copy"/></svg> من قالب</button>` : ''}
+        <button class="btn btn-primary" id="goalsAdd"><svg class="ic"><use href="#i-plus"/></svg> مشروع جديد</button>
       </div>
     </div>
     ${list.length ? `<div class="goals-grid">${list.map(goalCard).join('')}</div>` : emptyState('flag', state.goals.length ? 'لا توجد أهداف مطابقة' : 'ابدأ بهدفك الأول', state.goals.length ? 'غيّر الفلتر أو كلمة البحث.' : 'الهدف الواضح نصف الطريق. أضف هدفاً وقسّمه لمهام صغيرة.', `<button class="btn btn-primary" id="goalsAdd2"><svg class="ic"><use href="#i-plus"/></svg> هدف جديد</button>`)}`;
@@ -123,8 +139,35 @@ export function renderGoals(el) {
   $('goalsCat').onchange = (e) => { f.category = e.target.value; renderGoals(el); };
   $('goalsSort').onchange = (e) => { f.sort = e.target.value; renderGoals(el); };
   $('goalsAdd').onclick = () => openGoalModal();
+  $('goalsTpl').onclick = () => { f.templates = !f.templates; renderGoals(el); };
+  const ft = $('goalsFromTpl'); if (ft) ft.onclick = (e) => templateMenu(templates, ft);
   const add2 = $('goalsAdd2'); if (add2) add2.onclick = () => openGoalModal();
   bindGoalCards(el);
+}
+
+function templateMenu(templates, btn) {
+  const menu = document.createElement('div'); menu.className = 'menu'; menu.style.position = 'fixed';
+  const r = btn.getBoundingClientRect(); menu.style.top = r.bottom + 4 + 'px'; menu.style.insetInlineEnd = (document.documentElement.dir === 'rtl' ? r.left : window.innerWidth - r.right) + 'px';
+  menu.innerHTML = templates.map(t => `<button data-tpl="${t.id}"><span class="goal-dot" style="background:${t.color || '#2563eb'}"></span> ${esc(t.name)} <small class="hint">${goalTasks(t.id).length} مهمة</small></button>`).join('');
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+  menu.querySelectorAll('[data-tpl]').forEach(b => { b.onclick = () => createFromTemplate(goalById(b.dataset.tpl)); });
+}
+
+export async function createFromTemplate(tpl) {
+  if (!tpl) return;
+  const name = await promptDialog('اسم المشروع الجديد', tpl.name.replace(/^قالب:\s*/, ''));
+  if (!name) return;
+  const start = await promptDialog('تاريخ البداية', isoDate(), { type: 'date' });
+  if (start == null) return;
+  const days = tpl.startDate && tpl.endDate ? Math.max(1, Math.round((new Date(tpl.endDate + 'T00:00:00') - new Date(tpl.startDate + 'T00:00:00')) / 86400000)) : 30;
+  const { goal, tasks } = cloneFromTemplate(tpl, state.tasks, { name, startDate: start || isoDate(), endDate: isoDate(addDays(start || isoDate(), days)) });
+  try {
+    const id = await api.createGoal(goal);
+    if (tasks.length) await api.createTasksBatch(tasks.map(t => ({ ...t, goalId: id, assignedToUid: state.user.uid })));
+    toast(`تم إنشاء «${name}» من القالب مع ${tasks.length} مهمة`, { type: 'ok' });
+    location.hash = 'project/' + id;
+  } catch (e) { console.error(e); toast('تعذّر الإنشاء', { type: 'err' }); }
 }
 
 function goalCard(g) {
@@ -136,7 +179,9 @@ function goalCard(g) {
       <div class="goal-title"><span class="goal-dot"></span><h3>${esc(g.name)}</h3></div>
       <div class="menu-wrap"><button class="iconbtn" data-menu aria-label="خيارات"><svg class="ic"><use href="#i-dots"/></svg></button>
         <div class="menu" hidden>
-          <button data-act="open"><svg class="ic"><use href="#i-list"/></svg> المهام والتفاصيل</button>
+          <button data-act="project"><svg class="ic"><use href="#i-list"/></svg> صفحة المشروع</button>
+          <button data-act="open"><svg class="ic"><use href="#i-eye"/></svg> عرض سريع</button>
+          ${canEditGoal(g) ? `<button data-act="template"><svg class="ic"><use href="#i-copy"/></svg> ${g.template ? 'إلغاء كقالب' : 'حفظ كقالب'}</button>` : ''}
           <button data-act="task"><svg class="ic"><use href="#i-plus"/></svg> إضافة مهمة</button>
           ${canEditGoal(g) ? `<button data-act="edit"><svg class="ic"><use href="#i-edit"/></svg> تعديل</button>
           <button data-act="archive"><svg class="ic"><use href="#i-archive"/></svg> ${g.archived ? 'إلغاء الأرشفة' : 'أرشفة'}</button>` : ''}
@@ -163,7 +208,7 @@ function bindGoalCards(root) {
   root.querySelectorAll('.goal-card').forEach(card => {
     const id = card.dataset.goal;
     const g = goalById(id);
-    card.addEventListener('click', (e) => { if (!e.target.closest('.menu-wrap')) openGoalDrawer(id); });
+    card.addEventListener('click', (e) => { if (!e.target.closest('.menu-wrap')) location.hash = 'project/' + id; });
     const btn = card.querySelector('[data-menu]'), menu = card.querySelector('.menu');
     btn.onclick = (e) => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(m => { if (m !== menu) m.hidden = true; }); menu.hidden = !menu.hidden; };
     menu.querySelectorAll('button').forEach(b => {
@@ -171,6 +216,8 @@ function bindGoalCards(root) {
         e.stopPropagation(); menu.hidden = true;
         const act = b.dataset.act;
         if (act === 'open') openGoalDrawer(id);
+        if (act === 'project') location.hash = 'project/' + id;
+        if (act === 'template') { await api.updateGoal(id, { template: !g.template }); toast(g.template ? 'لم يعد قالباً' : 'تم الحفظ كقالب', { type: 'ok' }); }
         if (act === 'task') openTaskModal(null, id);
         if (act === 'edit') openGoalModal(g);
         if (act === 'access') openAccessModal(g);
@@ -185,9 +232,11 @@ document.addEventListener('click', (e) => { if (!e.target.closest('.menu-wrap'))
 // ================= المهام =================
 export function renderTasks(el) {
   const f = filters.tasks;
-  const goals = state.goals;
-  let list = state.tasks.filter(t => goals.some(g => g.id === t.goalId));
+  const goals = state.goals.filter(g => !g.template);
+  let list = state.tasks.filter(t => goals.some(g => g.id === t.goalId) && !t.parentId);
   if (f.goal !== 'all') list = list.filter(t => t.goalId === f.goal);
+  if (f.tag !== 'all') list = list.filter(t => (t.tags || []).includes(f.tag));
+  if (f.star) list = list.filter(t => t.starred);
   if (f.assignee === 'me') list = list.filter(t => t.assignedToUid === state.user.uid);
   else if (f.assignee !== 'all') list = list.filter(t => t.assignedToUid === f.assignee);
   if (f.priority !== 'all') list = list.filter(t => (t.priority || 'medium') === f.priority);
@@ -196,21 +245,36 @@ export function renderTasks(el) {
   if (f.q) list = list.filter(t => (t.name + ' ' + (t.notes || '')).toLowerCase().includes(f.q.toLowerCase()));
   list = sortTasks(list);
   const assignees = [...new Set(state.tasks.map(t => t.assignedToUid).filter(Boolean))];
+  const allTags = f.goal !== 'all' ? (goalById(f.goal)?.tags || []) : goals.flatMap(g => (g.tags || []).map(x => ({ ...x, goal: g.name })));
+  const saved = (state.profile && state.profile.savedFilters) || [];
   el.innerHTML = `
     <div class="toolbar">
+      <div class="view-switch">${[['list', 'قائمة', 'list'], ['kanban', 'كانبان', 'grip'], ['my', 'مهامي', 'user'], ['gantt', 'جانت', 'chart']].map(([k, v, i]) => `<button class="${f.view === k ? 'on' : ''}" data-tview="${k}"><svg class="ic"><use href="#i-${i}"/></svg>${v}</button>`).join('')}</div>
       <div class="seg">${[['open', 'مفتوحة'], ['done', 'منجزة'], ['all', 'الكل']].map(([k, v]) => `<button class="${f.status === k ? 'active' : ''}" data-status="${k}">${v}</button>`).join('')}</div>
       <div class="toolbar-right">
         <div class="search"><svg class="ic"><use href="#i-search"/></svg><input type="search" id="tasksQ" placeholder="ابحث في المهام…" value="${esc(f.q)}"></div>
         <select id="tasksGoal"><option value="all">كل الأهداف</option>${goals.filter(g => !g.archived).map(g => `<option value="${g.id}" ${f.goal === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
         <select id="tasksAssignee"><option value="all">كل المكلّفين</option><option value="me" ${f.assignee === 'me' ? 'selected' : ''}>مهامي</option>${assignees.filter(u => u !== state.user.uid).map(u => `<option value="${u}" ${f.assignee === u ? 'selected' : ''}>${esc(userLabel(u))}</option>`).join('')}</select>
         <select id="tasksPriority"><option value="all">كل الأولويات</option>${Object.entries(PRIORITIES).map(([k, v]) => `<option value="${k}" ${f.priority === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select>
-        <select id="tasksGroup"><option value="due" ${f.group === 'due' ? 'selected' : ''}>تجميع: الموعد</option><option value="goal" ${f.group === 'goal' ? 'selected' : ''}>تجميع: الهدف</option><option value="priority" ${f.group === 'priority' ? 'selected' : ''}>تجميع: الأولوية</option><option value="none" ${f.group === 'none' ? 'selected' : ''}>بدون تجميع</option></select>
+        ${allTags.length ? `<select id="tasksTag"><option value="all">كل التاجز</option>${allTags.map(x => `<option value="${x.id}" ${f.tag === x.id ? 'selected' : ''}>${esc(x.name)}${x.goal ? ` (${esc(x.goal)})` : ''}</option>`).join('')}</select>` : ''}
+        <button class="btn ${f.star ? 'btn-primary' : ''}" id="tasksStar" title="بنجمة">★</button>
+        <select id="tasksGroup"><option value="due" ${f.group === 'due' ? 'selected' : ''}>تجميع: الموعد</option><option value="goal" ${f.group === 'goal' ? 'selected' : ''}>تجميع: المشروع</option><option value="stage" ${f.group === 'stage' ? 'selected' : ''}>تجميع: المرحلة</option><option value="priority" ${f.group === 'priority' ? 'selected' : ''}>تجميع: الأولوية</option><option value="none" ${f.group === 'none' ? 'selected' : ''}>بدون تجميع</option></select>
         <button class="btn btn-primary" id="tasksAdd"><svg class="ic"><use href="#i-plus"/></svg> مهمة</button>
       </div>
     </div>
+    <div class="saved-filters"><svg class="ic hint"><use href="#i-search"/></svg>${saved.map(s => `<button class="chip ${f.savedId === s.id ? 'on' : ''}" data-sf="${s.id}">${esc(s.name)}</button>`).join('')}<button class="chip" id="sfSave">＋ حفظ الفلتر الحالي</button>${f.savedId ? `<button class="chip" id="sfDel">حذف الفلتر</button>` : ''}</div>
     <form class="quick-add" id="quickAdd"><svg class="ic"><use href="#i-plus"/></svg><input type="text" id="quickAddName" placeholder="إضافة سريعة: اكتب اسم المهمة واضغط Enter (مثال: مراجعة الفصل 3 غداً !عالي)" autocomplete="off"><select id="quickAddGoal">${goals.filter(g => !g.archived).map(g => `<option value="${g.id}" ${f.goal === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select><button type="submit" class="btn btn-primary btn-sm">إضافة</button></form>
-    <div id="tasksBody">${renderTaskGroups(list, f.group)}</div>`;
+    <div id="tasksBody">${f.view === 'list' ? renderTaskGroups(list, f.group) : ''}</div>`;
+  if (f.view === 'kanban') renderTasksKanban($('tasksBody'), list, goals);
+  if (f.view === 'my') renderMyKanban($('tasksBody'), list);
+  if (f.view === 'gantt') renderGantt($('tasksBody'), list, { onOpen: openTask, onChange: (id, p) => api.updateTask(id, p).then(() => toast('تم تحديث التواريخ', { type: 'ok' })) });
+  el.querySelectorAll('[data-tview]').forEach(b => { b.onclick = () => { f.view = b.dataset.tview; renderTasks(el); }; });
   el.querySelectorAll('[data-status]').forEach(b => { b.onclick = () => { f.status = b.dataset.status; renderTasks(el); }; });
+  const tt = $('tasksTag'); if (tt) tt.onchange = (e) => { f.tag = e.target.value; renderTasks(el); };
+  $('tasksStar').onclick = () => { f.star = !f.star; renderTasks(el); };
+  el.querySelectorAll('[data-sf]').forEach(b => { b.onclick = () => { const s = saved.find(x => x.id === b.dataset.sf); if (!s) return; if (f.savedId === s.id) { f.savedId = null; Object.assign(f, { q: '', goal: 'all', assignee: 'all', priority: 'all', status: 'open', tag: 'all', star: false }); } else { Object.assign(f, s.filters, { savedId: s.id }); } renderTasks(el); }; });
+  $('sfSave').onclick = async () => { const name = await promptDialog('اسم الفلتر', ''); if (!name) return; const { savedId, ...rest } = f; const sf = { id: Date.now().toString(36), name, filters: rest }; await api.updateProfile({ savedFilters: [...saved, sf] }); f.savedId = sf.id; toast('تم حفظ الفلتر', { type: 'ok' }); renderTasks(el); };
+  const sd = $('sfDel'); if (sd) sd.onclick = async () => { await api.updateProfile({ savedFilters: saved.filter(x => x.id !== f.savedId) }); f.savedId = null; renderTasks(el); };
   $('tasksQ').oninput = (e) => { f.q = e.target.value; $('tasksBody').innerHTML = renderTaskGroups(applyFilters(), f.group); bindTaskList($('tasksBody')); };
   const applyFilters = () => { renderTasks(el); return []; };
   $('tasksGoal').onchange = (e) => { f.goal = e.target.value; renderTasks(el); };
@@ -241,11 +305,57 @@ export function parseQuick(raw) {
   return { name: name.replace(/\s+/g, ' ').trim(), dueDate, priority };
 }
 
+/** كانبان كل المشاريع: الأعمدة باسم المرحلة (مجمّعة عبر المشاريع) */
+function renderTasksKanban(container, list, goals) {
+  const single = filters.tasks.goal !== 'all' ? goalById(filters.tasks.goal) : null;
+  let columns;
+  if (single) columns = projectStages(single);
+  else {
+    const byName = new Map();
+    for (const g of goals) for (const s of projectStages(g)) if (!byName.has(s.name)) byName.set(s.name, { id: 'n:' + s.name, name: s.name, color: s.color, fold: s.fold, done: s.done });
+    columns = [...byName.values()].sort((a, b) => (a.done - b.done));
+  }
+  const colOf = (t) => { const g = goalById(t.goalId); const s = taskStage(t, g); return single ? s.id : 'n:' + s.name; };
+  kanbanFolded = renderKanban(container, {
+    columns, items: list, colOf, folded: kanbanFolded, card: (t) => kanbanCard(t, goalById(t.goalId)), onOpen: openTask,
+    onMove: async (taskId, colId, ids) => {
+      const t = state.tasks.find(x => x.id === taskId); const g = goalById(t.goalId);
+      const s = single ? projectStages(g).find(x => x.id === colId) : projectStages(g).find(x => 'n:' + x.name === colId);
+      if (!s) { toast(`المشروع «${g.name}» ليس فيه مرحلة بهذا الاسم`, { type: 'err' }); renderTasks(document.getElementById('view')); return; }
+      const p = stagePatch(s); if (s.done && !t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp();
+      await api.updateTask(taskId, p); api.reorderTasks(ids).catch(() => {});
+      if (s.done && t.recurrence && t.recurrence.freq && !t.completed) spawnRecurrence(t);
+    },
+    onQuickAdd: single ? (colId, name) => api.createTask({ name, goalId: single.id, stageId: colId, priority: 'medium', assignedToUid: state.user.uid, dueDate: null }) : null,
+  });
+}
+
+/** مهامي بمراحل شخصية (مستقلة عن مراحل المشروع) */
+function renderMyKanban(container, list) {
+  const mine = list.filter(t => t.assignedToUid === state.user.uid || (t.assignedUserIds || []).includes(state.user.uid));
+  const stages = (state.profile && state.profile.personalStages) || DEFAULT_PERSONAL_STAGES;
+  const map = (state.profile && state.profile.personalStageMap) || {};
+  const colOf = (t) => { if (t.completed) return (stages.find(s => s.done) || stages[stages.length - 1]).id; const id = map[t.id]; return stages.some(s => s.id === id) ? id : stages[0].id; };
+  container.innerHTML = `<p class="hint" style="margin-bottom:.6rem">مراحل شخصية لترتيب يومك — لا تؤثر على مراحل المشروع. ${mine.length} مهمة مكلّف بها.</p><div id="myKan"></div>`;
+  renderKanban(container.querySelector('#myKan'), {
+    columns: stages, items: mine, colOf, card: (t) => kanbanCard(t, goalById(t.goalId)), onOpen: openTask,
+    onMove: async (taskId, colId) => {
+      const s = stages.find(x => x.id === colId); const t = state.tasks.find(x => x.id === taskId); if (!s || !t) return;
+      const nm = { ...map, [taskId]: colId };
+      await api.updateProfile({ personalStageMap: nm });
+      if (s.done && !t.completed) { const g = goalById(t.goalId); const p = completionPatch(g, true); p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp(); await api.updateTask(taskId, p); }
+      else if (!s.done && t.completed) await api.updateTask(taskId, completionPatch(goalById(t.goalId), false));
+    },
+    onColMenu: async (col, btn) => { const n = await promptDialog('اسم المرحلة الشخصية', col.name); if (!n) return; await api.updateProfile({ personalStages: stages.map(s => s.id === col.id ? { ...s, name: n } : s) }); },
+  });
+}
+
 function renderTaskGroups(list, group) {
   if (!list.length) return emptyState('check', 'لا توجد مهام هنا', 'أضف مهمة من الشريط أعلاه أو غيّر الفلتر.');
   if (group === 'none') return taskList(list, { sortable: true });
   let groups;
-  if (group === 'due') { const order = ['overdue', 'today', 'week', 'later', 'noDate', 'done']; const m = groupBy(list, taskBucket); groups = order.filter(k => m.has(k)).map(k => [BUCKETS[k], m.get(k), k]); }
+  if (group === 'stage') { const m = groupBy(list, t => taskStage(t, goalById(t.goalId)).name); groups = [...m.entries()].map(([k, v]) => [k, v, 'stage']); }
+  else if (group === 'due') { const order = ['overdue', 'today', 'week', 'later', 'noDate', 'done']; const m = groupBy(list, taskBucket); groups = order.filter(k => m.has(k)).map(k => [BUCKETS[k], m.get(k), k]); }
   else if (group === 'goal') { const m = groupBy(list, t => t.goalId); groups = [...m.entries()].map(([k, v]) => [goalById(k)?.name || 'هدف غير معروف', v, k]); }
   else { const m = groupBy(list, t => t.priority || 'medium'); groups = ['high', 'medium', 'low'].filter(k => m.has(k)).map(k => [PRIORITIES[k].label, m.get(k), k]); }
   return groups.map(([title, items, key]) => `<section class="task-group ${key}"><h4 class="grp-title ${key === 'overdue' ? 'danger' : key === 'today' ? 'warn' : ''}">${esc(title)} <small>${items.length}</small></h4>${taskList(items, { sortable: true })}</section>`).join('');
@@ -259,12 +369,14 @@ function taskRow(t, compact) {
   const g = goalById(t.goalId);
   const b = taskBucket(t);
   const due = t.dueDate ? `<span class="due ${b === 'overdue' ? 'c-danger' : b === 'today' ? 'c-warn' : ''}"><svg class="ic"><use href="#i-cal"/></svg>${relativeDue(t.dueDate)}</span>` : '';
+  const stg = g ? taskStage(t, g) : null; const sp = subtaskProgress(state.tasks, t.id); const cl = checklistProgress(t); const blk = blockers(t, state.tasks);
+  const tags = g && g.tags ? g.tags.filter(x => (t.tags || []).includes(x.id)) : [];
   return `<div class="task ${t.completed ? 'done' : ''} ${PRIORITIES[t.priority || 'medium'].cls}" data-task="${t.id}">
     ${!compact ? `<span class="drag" title="اسحب للترتيب"><svg class="ic"><use href="#i-grip"/></svg></span>` : ''}
     <label class="check"><input type="checkbox" ${t.completed ? 'checked' : ''} aria-label="إنجاز"><span></span></label>
     <div class="task-main">
-      <div class="task-title">${esc(t.name)}</div>
-      <div class="task-meta">${g ? `<span class="goal-tag" style="--gc:${g.color || '#2563eb'}">${esc(g.name)}</span>` : ''}${due}${t.assignedToUid ? `<span class="who">${avatar(t.assignedToUid, 18)} ${esc(userLabel(t.assignedToUid))}</span>` : ''}${t.notes ? `<span class="hint" title="${esc(t.notes)}"><svg class="ic"><use href="#i-note"/></svg></span>` : ''}</div>
+      <div class="task-title">${t.starred ? '<span class="star on sm">★</span> ' : ''}${esc(t.name)}${blk.length ? ' <span class="c-danger" title="محجوبة بمهام أخرى">⛔</span>' : ''}${t.recurrence && t.recurrence.freq ? ' <span class="hint" title="متكررة">🔁</span>' : ''}</div>
+      <div class="task-meta">${g ? `<span class="goal-tag" style="--gc:${g.color || '#2563eb'}">${esc(g.name)}</span>` : ''}${stg && !compact ? `<span class="badge" style="background:${stg.color}22;color:${stg.color}">${esc(stg.name)}</span>` : ''}${due}${t.assignedToUid ? `<span class="who">${avatar(t.assignedToUid, 18)} ${esc(userLabel(t.assignedToUid))}</span>` : ''}${sp ? `<span title="مهام فرعية">↳ ${sp.done}/${sp.total}</span>` : ''}${cl ? `<span title="قائمة المراجعة">☑ ${cl.done}/${cl.total}</span>` : ''}${t.plannedHours ? `<span title="ساعات">⏱ ${hoursSpent(t)}/${t.plannedHours}</span>` : ''}${(t.attachments || []).length ? `<span>📎${t.attachments.length}</span>` : ''}${tags.length && !compact ? `<span class="kc-tags">${tags.map(x => `<span class="tag" style="--tc:${x.color}">${esc(x.name)}</span>`).join('')}</span>` : ''}${t.notes ? `<span class="hint" title="${esc(t.notes)}"><svg class="ic"><use href="#i-note"/></svg></span>` : ''}</div>
     </div>
     ${!compact ? priorityBadge(t.priority) : ''}
     <div class="task-actions">
@@ -282,7 +394,10 @@ function bindTaskList(root) {
       const done = e.target.checked;
       row.classList.toggle('done', done);
       try {
-        await api.toggleTask(id, done);
+        const gx = goalById(t.goalId);
+        const p = completionPatch(gx, done); if (done) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp();
+        await api.updateTask(id, p);
+        if (done && t.recurrence && t.recurrence.freq) spawnRecurrence(t);
         if (done) {
           const g = goalById(t.goalId);
           const remaining = goalTasks(t.goalId).filter(x => !x.completed && x.id !== id).length;
@@ -291,9 +406,9 @@ function bindTaskList(root) {
         }
       } catch (err) { console.error(err); toast('تعذّر الحفظ', { type: 'err' }); e.target.checked = !done; }
     };
-    const edit = row.querySelector('[data-act="edit"]'); if (edit) edit.onclick = (e) => { e.stopPropagation(); openTaskModal(t); };
+    const edit = row.querySelector('[data-act="edit"]'); if (edit) edit.onclick = (e) => { e.stopPropagation(); openTask(t.id); };
     const del = row.querySelector('[data-act="del"]'); if (del) del.onclick = async (e) => { e.stopPropagation(); if (await confirmDialog(`حذف المهمة «${t.name}»؟`, { okLabel: 'حذف' })) { await api.deleteTask(id); toast('تم حذف المهمة'); } };
-    row.querySelector('.task-title').onclick = () => { if (canEditTask(t)) openTaskModal(t); };
+    row.querySelector('.task-title').onclick = () => openTask(t.id);
   });
   if (window.Sortable) {
     root.querySelectorAll('.task-list.sortable').forEach(list => {
@@ -502,11 +617,11 @@ export function openGoalModal(goal) {
     if ($('gEnd').value < $('gStart').value) { toast('تاريخ النهاية قبل البداية', { type: 'err' }); return; }
     const pub = $('gPublic').checked;
     const data = { name, startDate: $('gStart').value, endDate: $('gEnd').value, note: $('gNote').value.trim(), category: $('gCategory').value, priority: $('gPriority').value, color: colors.querySelector('.sel')?.dataset.c || GOAL_COLORS[0], visibility: pub ? 'public' : 'private', visibilityMode: pub ? 'public' : (goal && goal.visibilityMode && goal.visibilityMode !== 'public' ? goal.visibilityMode : 'private') };
+    if (!isEdit) { data.stages = DEFAULT_STAGES.map(s => ({ ...s })); data.tags = []; data.milestones = []; data.manager = state.user.uid; }
     const btn = $('goalForm').querySelector('button[type=submit]'); setBusy(btn, true);
     try {
-      if (isEdit) { await api.updateGoal(goal.id, data); toast('تم حفظ التعديلات', { type: 'ok' }); }
-      else { const id = await api.createGoal(data); toast('تم إنشاء الهدف 🎯', { type: 'ok', action: 'أضف مهمة', onAction: () => openTaskModal(null, id) }); }
-      closeModal('goalModal');
+      if (isEdit) { await api.updateGoal(goal.id, data); toast('تم حفظ التعديلات', { type: 'ok' }); closeModal('goalModal'); }
+      else { const id = await api.createGoal(data); toast('تم إنشاء المشروع 🎯', { type: 'ok' }); closeModal('goalModal'); location.hash = 'project/' + id; }
     } catch (err) { console.error(err); toast('تعذّر الحفظ', { type: 'err' }); }
     setBusy(btn, false);
   };
@@ -540,7 +655,8 @@ export function openTaskModal(task, goalId, dueDate) {
   $('taskForm').onsubmit = async (e) => {
     e.preventDefault();
     const name = $('tName').value.trim(); if (!name) return;
-    const data = { name, goalId: $('tGoal').value, dueDate: $('tDue').value || null, priority: $('tPriority').value, notes: $('tNotes').value.trim(), assignedToUid: $('tAssignee').value || null };
+    const gsel = goalById($('tGoal').value);
+    const data = { name, goalId: $('tGoal').value, dueDate: $('tDue').value || null, priority: $('tPriority').value, notes: $('tNotes').value.trim(), assignedToUid: $('tAssignee').value || null, stageId: task ? task.stageId || null : (projectStages(gsel).find(s => !s.done) || {}).id || null, assignedUserIds: $('tAssignee').value ? [$('tAssignee').value] : [] };
     const btn = $('taskForm').querySelector('button[type=submit]'); setBusy(btn, true);
     try {
       if (isEdit) { await api.updateTask(task.id, data); toast('تم حفظ التعديلات', { type: 'ok' }); }

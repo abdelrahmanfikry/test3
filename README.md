@@ -6,6 +6,19 @@
 
 ## المميزات
 
+### إدارة مشاريع على طريقة Odoo (الإصدار 3)
+| المجال | التفاصيل |
+|---|---|
+| **صفحة المشروع** | 6 تبويبات: نظرة عامة (مؤشرات، المهام حسب المرحلة، Burndown، المعالم، المتأخر)، كانبان، قائمة، جانت، المعالم، الإعدادات |
+| **المراحل والكانبان** | مراحل لكل مشروع (اسم، لون، طيّ، نهائية، حد WIP) بالسحب لإعادة الترتيب؛ كانبان بالسحب بين الأعمدة، عمود مطوي للمنجز، إضافة سريعة داخل العمود، قائمة خيارات لكل عمود |
+| **بطاقة المهمة الكاملة** | مرحلة، نجمة، أولوية، تاريخ بداية ونهاية، ساعات مخططة، أكثر من مكلّف، تاجز ملوّنة، تبعيات (محجوبة بـ)، تكرار (يومي/أسبوعي/شهري يولّد التالي عند الإنجاز)، وصف، قائمة مراجعة، مهام فرعية بتقدّم مجمّع، ساعات مسجّلة مع مؤقّت، أنشطة مجدولة (اتصال/اجتماع/تذكير…)، مرفقات (Firebase Storage)، **Chatter** بتعليقات وملاحظات داخلية و@ذكر |
+| **المعالم والقوالب** | معالم بتاريخ وإنجاز تظهر في الجانت؛ حفظ أي مشروع كقالب وإنشاء مشروع جديد منه بمراحله وتاجزه ومعالمه ومهامه بإزاحة التواريخ |
+| **العروض** | المهام: قائمة / كانبان عبر المشاريع (بأسماء المراحل) / **مهامي بمراحل شخصية** / جانت؛ تجميع بالمرحلة؛ **فلاتر محفوظة** بالاسم |
+| **الجانت** | أشرطة بالسحب لتحريك المهمة وتغيير مدتها، خط اليوم، مهام فرعية، معالم |
+| **الأنشطة** | صفحة تجمع أنشطتي عبر كل المهام (متأخرة/اليوم/مخططة) مع «تمّت» |
+| **الخصوصية** | المتابعون فقط / كل الفريق، مدير المشروع، الأعضاء، حد الساعات |
+
+
 | المجال | التفاصيل |
 |---|---|
 | **لوحة التحكم** | تحية بالاسم، عبارة اليوم، مؤشرات (اليوم/متأخرة/أُنجز هذا الأسبوع/سلسلة الإنجاز/الأهداف/النسبة)، «ركّز اليوم»، أهداف قريبة من موعدها، مهامي المكلّف بها |
@@ -29,7 +42,11 @@ test3/
 │   ├── app.js         الدخول، التنقل، البحث، الاختصارات، التنبيهات
 │   ├── data.js        طبقة البيانات: Firebase (نفس المشروع والمجموعات) أو وضع تجريبي محلي
 │   ├── store.js       الحالة + المشتقات (تقدّم الأهداف، الإحصائيات، السلسلة، الصلاحيات)
-│   ├── views.js       كل الشاشات + نوافذ الهدف/المهمة/الوصول + اللوحة الجانبية
+│   ├── views.js       الشاشات الأساسية + نوافذ الهدف/المهمة/الوصول
+│   ├── model.js       نموذج Odoo: مراحل، تكرار، تبعيات، جانت، معالم، قوالب
+│   ├── project-page.js صفحة المشروع بتبويباتها
+│   ├── task-panel.js  بطاقة المهمة الكاملة + Chatter
+│   ├── kanban.js · gantt.js · activities.js
 │   ├── chatbot.js     مساعد التخطيط
 │   ├── ui.js          إشعارات، نوافذ، تأكيد، احتفال
 │   └── utils.js       تهريب HTML، تواريخ، ثوابت
@@ -45,8 +62,8 @@ test3/
 | المجموعة | الحقول المهمة |
 |---|---|
 | `userProfiles/{uid}` | `email, role (user/admin), displayName, photoURL, lastSeen` |
-| `goals/{id}` | `name, startDate, endDate, note, progress, createdBy, assignedUserIds[], visibility, visibilityMode, blockedUserIds[]` + جديد: `category, priority, color, archived` |
-| `tasks/{id}` | `name, dueDate, goalId, completed, assignedToUid, assignedToEmail, createdBy` + جديد: `priority, notes, order, completedAt` |
+| `goals/{id}` | `name, startDate, endDate, note, progress, createdBy, assignedUserIds[], visibility, visibilityMode, blockedUserIds[]` + جديد: `category, priority, color, archived, stages[], tags[], milestones[], manager, plannedHours, template` |
+| `tasks/{id}` | `name, dueDate, goalId, completed, assignedToUid, assignedToEmail, createdBy` + جديد: `priority, notes, order, completedAt, stageId, parentId, assignedUserIds[], tags[], starred, startDate, blockedBy[], plannedHours, timesheets[], checklist[], activities[], attachments[], recurrence` · تعليقات في `tasks/{id}/messages` |
 | `activity/{id}` | سجل النشاط (+ نسخة تحت كل هدف/مهمة) |
 | `mail/{id}` | رسائل لإضافة **Trigger Email** (اختيارية) |
 

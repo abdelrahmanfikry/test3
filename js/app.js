@@ -4,11 +4,15 @@ import { init as initData, api, enterDemo, isDemo } from './data.js';
 import { toast, bindModalBasics, openModal, closeModal, closeAllModals } from './ui.js';
 import * as V from './views.js';
 import { initChatbot } from './chatbot.js';
+import { renderProject } from './project-page.js';
+import { renderActivities } from './activities.js';
+import { closeTask, refreshTaskPanel, openTaskId } from './task-panel.js';
 import { esc, relativeDue, isoDate } from './utils.js';
 
 const $ = (id) => document.getElementById(id);
-const VIEWS = { dashboard: ['لوحة التحكم', V.renderDashboard], goals: ['الأهداف', V.renderGoals], tasks: ['المهام', V.renderTasks], calendar: ['التقويم', V.renderCalendar], reports: ['التقارير', V.renderReports], team: ['الفريق', V.renderTeam], activity: ['سجل النشاط', V.renderActivity], settings: ['الإعدادات', V.renderSettings] };
+const VIEWS = { dashboard: ['لوحة التحكم', V.renderDashboard], goals: ['المشاريع', V.renderGoals], tasks: ['المهام', V.renderTasks], calendar: ['التقويم', V.renderCalendar], activities: ['الأنشطة', renderActivities], reports: ['التقارير', V.renderReports], team: ['الفريق', V.renderTeam], activity: ['سجل النشاط', V.renderActivity], settings: ['الإعدادات', V.renderSettings], project: ['المشروع', null] };
 let current = 'dashboard';
+let projectRoute = null;
 let rerender = null;
 
 // ================= المظهر =================
@@ -24,12 +28,16 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme
 // ================= التنقل =================
 function route() {
   const hash = location.hash.replace('#', '').replace('demo', '') || 'dashboard';
-  const view = VIEWS[hash] ? hash : 'dashboard';
+  const parts = hash.split('/');
+  let view = VIEWS[parts[0]] ? parts[0] : 'dashboard';
+  projectRoute = null;
+  if (view === 'project') { if (!parts[1]) view = 'goals'; else projectRoute = { id: parts[1], tab: parts[2] || 'overview' }; }
   if (view === 'team' && !state.isAdmin) { location.hash = 'dashboard'; return; }
   current = view;
-  document.querySelectorAll('[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === view));
-  $('pageTitle').textContent = VIEWS[view][0];
-  document.title = `${VIEWS[view][0]} — سجل أهدافي`;
+  document.querySelectorAll('[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === (view === 'project' ? 'goals' : view)));
+  const g = projectRoute && state.goals.find(x => x.id === projectRoute.id);
+  $('pageTitle').textContent = view === 'project' ? (g ? g.name : 'المشروع') : VIEWS[view][0];
+  document.title = `${$('pageTitle').textContent} — سجل أهدافي`;
   $('sidebar').classList.remove('open');
   render();
   $('view').scrollTop = 0;
@@ -39,8 +47,10 @@ function render() {
   if (!state.user) return;
   const el = $('view');
   el.dataset.view = current;
-  VIEWS[current][1](el);
+  if (current === 'project' && projectRoute) renderProject(el, projectRoute.id, projectRoute.tab);
+  else VIEWS[current][1](el);
   V.refreshDrawer();
+  refreshTaskPanel();
   renderBadges();
 }
 
@@ -147,6 +157,7 @@ function bind() {
   $('signOutBtn').onclick = () => api.signOut();
   $('demoExit').onclick = () => api.signOut();
   $('drawerBg').onclick = V.closeDrawer;
+  $('taskDrawerBg').onclick = closeTask;
   document.addEventListener('keydown', (e) => {
     const inField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }
@@ -155,8 +166,8 @@ function bind() {
     if (e.key.toLowerCase() === 'n') V.openTaskModal();
     if (e.key.toLowerCase() === 'g') V.openGoalModal();
     const idx = ['1', '2', '3', '4', '5', '6'].indexOf(e.key);
-    if (idx >= 0) location.hash = ['dashboard', 'goals', 'tasks', 'calendar', 'reports', 'activity'][idx];
-    if (e.key === 'Escape') V.closeDrawer();
+    if (idx >= 0) location.hash = ['dashboard', 'goals', 'tasks', 'calendar', 'reports', 'activities'][idx];
+    if (e.key === 'Escape') { V.closeDrawer(); if (openTaskId()) closeTask(); }
   });
   bindModalBasics();
 
@@ -168,8 +179,10 @@ function bind() {
         if (!state.user) return;
         // نحافظ على حقول البحث أثناء الكتابة
         const active = document.activeElement;
+        if (active && active.closest && active.closest('#taskDrawer')) { refreshTaskPanel(); return; }
         if (active && active.closest && active.closest('#view') && active.tagName === 'INPUT' && active.type === 'search') return;
         if (active && active.id === 'quickAddName' && active.value) return;
+        if (active && active.closest && active.closest('.kcol-add, .stage-list, #tagAdd') && active.value) return;
         render();
       }, 60);
     }
