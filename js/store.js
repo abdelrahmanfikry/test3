@@ -26,7 +26,7 @@ export function subscribe(fn) { listeners.add(fn); return () => listeners.delete
 export function notify(reason = 'change') { for (const fn of listeners) { try { fn(state, reason); } catch (e) { console.error(e); } } }
 
 function loadPrefs() {
-  const d = { theme: 'auto', notify: false, compact: false, density: 'normal', accent: 'blue', fontSize: 'normal', weekStart: 6, home: 'dashboard', focusMin: 25, breakMin: 5, calView: 'month', lang: 'ar', weeklyDigest: false, autoBackup: false };
+  const d = { theme: 'auto', notify: false, compact: false, density: 'normal', accent: 'blue', fontSize: 'normal', weekStart: 6, home: 'dashboard', focusMin: 25, breakMin: 5, calView: 'month', lang: 'ar', weeklyDigest: false, autoBackup: false, skin: 'odoo' };
   try { return { ...d, ...JSON.parse(localStorage.getItem('goals.prefs') || '{}') }; } catch { return d; }
 }
 export function setPref(k, v) { state.prefs[k] = v; try { localStorage.setItem('goals.prefs', JSON.stringify(state.prefs)); } catch { /* ignore */ } notify('prefs'); }

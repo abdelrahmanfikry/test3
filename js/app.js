@@ -22,6 +22,7 @@ import { refreshTyping } from './task-panel.js';
 import { applyLang, translateTree, t as tr } from './i18n.js';
 import { maybeAutoDigest } from './digest.js';
 import { autoBackup } from './backup.js';
+import { initMonitor } from './monitor.js';
 
 const APP_VERSION = '5.0';
 const $ = (id) => document.getElementById(id);
@@ -37,6 +38,7 @@ function applyTheme() {
   if (th === 'auto') th = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   const h = document.documentElement;
   h.setAttribute('data-theme', th);
+  h.setAttribute('data-skin', state.prefs.skin === 'classic' ? 'classic' : 'odoo');
   if (state.prefs.accent && state.prefs.accent !== 'blue') h.setAttribute('data-accent', state.prefs.accent); else h.removeAttribute('data-accent');
   if (state.prefs.fontSize && state.prefs.fontSize !== 'normal') h.setAttribute('data-font', state.prefs.fontSize); else h.removeAttribute('data-font');
   document.body.classList.toggle('compact', !!state.prefs.compact);
@@ -62,8 +64,12 @@ function route() {
   document.querySelectorAll('[data-view]').forEach(a => { const on = a.dataset.view === (view === 'project' ? 'goals' : view); a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   const g = projectRoute && state.goals.find(x => x.id === projectRoute.id);
   $('pageTitle').textContent = view === 'project' ? (g ? g.name : tr('المشروع')) : tr(VIEWS[view][0]);
+  $('cpTitle').textContent = $('pageTitle').textContent;
+  $('crumbParent').hidden = $('crumbSep').hidden = view !== 'project';
   document.title = `${$('pageTitle').textContent} — ${tr('سجل أهدافي')}`;
   $('sidebar').classList.remove('open');
+  const mm = $('moreMenu'); if (mm) mm.hidden = true;
+  const mb = $('moreMenuBtn'); if (mb) mb.classList.toggle('active', ['activities', 'activity', 'team', 'trash', 'settings'].includes(view));
   render();
   $('view').scrollTop = 0;
   if (view !== 'project') setPresence({ page: view, projectId: null, taskId: null });
@@ -96,8 +102,7 @@ function renderBadges() {
   const b = $('navTasksBadge');
   b.textContent = s.overdue + s.today; b.hidden = !(s.overdue + s.today);
   b.className = 'nav-badge' + (s.overdue ? ' danger' : '');
-  $('teamNav').hidden = !state.isAdmin;
-  $('teamNavM').hidden = !state.isAdmin;
+  document.querySelectorAll('[data-view="team"]').forEach(a => { a.hidden = !state.isAdmin; });
   refreshInboxBadge();
   renderFavorites();
   const pb = $('pendingBadge'); if (pb) { pb.hidden = !state.pending; pb.textContent = state.pending ? `${state.pending} لم تُرفع بعد` : ''; }
@@ -221,6 +226,8 @@ function setupServiceWorker() {
 function bind() {
   window.addEventListener('hashchange', route);
   $('menuBtn').onclick = () => $('sidebar').classList.toggle('open');
+  $('moreMenuBtn').onclick = (e) => { e.stopPropagation(); const m = $('moreMenu'); m.hidden = !m.hidden; };
+  $('sidebar').addEventListener('click', (e) => { if (e.target.closest('a')) $('sidebar').classList.remove('open'); });
   $('sidebarBg').onclick = () => $('sidebar').classList.remove('open');
   $('themeBtn').onclick = () => { const cur = document.documentElement.getAttribute('data-theme'); setPref('theme', cur === 'dark' ? 'light' : 'dark'); };
   $('fab').onclick = () => V.openTaskModal();
@@ -280,6 +287,7 @@ function bind() {
 }
 
 function boot() {
+  initMonitor(api);
   applyTheme();
   applyLang();
   setupAuth();

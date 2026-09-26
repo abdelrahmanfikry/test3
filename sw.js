@@ -1,10 +1,11 @@
 // Service worker: ملفات الموقع من الكاش أولاً (مع تحديث بالخلفية)، والمكتبات شبكة أولاً مع كاش احتياطي.
 // عند كل نشر غيّر VERSION ليُحدَّث التطبيق عند كل المستخدمين تلقائياً.
 const VERSION = 'goals-v5.0.0';
-const ASSETS = ['./', './index.html', './css/style.css', './css/project.css', './css/extras.css',
+const ASSETS = ['./', './index.html', './css/style.css', './css/project.css', './css/extras.css', './css/odoo.css',
   './js/app.js', './js/views.js', './js/store.js', './js/data.js', './js/ui.js', './js/utils.js', './js/chatbot.js', './js/model.js', './js/kanban.js', './js/gantt.js', './js/task-panel.js', './js/project-page.js', './js/activities.js',
   './js/lib.js', './js/inbox.js', './js/focus.js', './js/bulk.js', './js/palette.js', './js/trash.js', './js/backup.js', './js/gestures.js',
-  './js/analytics.js', './js/notify.js', './js/presence.js', './js/templates.js', './js/digest.js', './js/ai.js', './js/capture.js', './js/today.js', './js/i18n.js', './js/share.js', './share.html', './js/share-page.js',
+  './js/analytics.js', './js/notify.js', './js/presence.js', './js/templates.js', './js/digest.js', './js/ai.js', './js/capture.js', './js/today.js', './js/i18n.js', './js/share.js', './share.html', './js/share-page.js', './js/monitor.js',
+  './js/views/shared.js', './js/views/dashboard.js', './js/views/goals.js', './js/views/tasks.js', './js/views/calendar.js', './js/views/reports.js', './js/views/team.js', './js/views/activity.js', './js/views/settings.js', './js/views/modals.js',
   './js/analytics.js', './js/notify.js', './js/presence.js', './js/templates.js', './js/digest.js', './js/ai.js', './js/capture.js', './js/today.js', './js/i18n.js', './js/share.js', './share.html', './js/share-page.js',
   './manifest.webmanifest', './icons/icon.svg'];
 

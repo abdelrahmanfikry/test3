@@ -248,6 +248,10 @@ const fb = {
     await ref.putString(json, 'raw', { contentType: 'application/json' });
     return ref.getDownloadURL();
   },
+  async reportError(entry) { await db.collection('clientErrors').add({ ...entry, createdAt: FV.serverTimestamp() }); },
+  async loadClientErrors() {
+    try { const s = await db.collection('clientErrors').orderBy('createdAt', 'desc').limit(40).get(); return s.docs.map(x => ({ id: x.id, ...x.data() })); } catch (e) { console.warn('clientErrors', e); return []; }
+  },
   async listBackups() {
     if (!storage) { try { await ensureStorage(); storage = window.firebase.storage(); } catch { return []; } }
     try { const r = await storage.ref(`backups/${state.user.uid}`).listAll(); return Promise.all(r.items.map(async i => ({ name: i.name, url: await i.getDownloadURL() }))); } catch { return []; }
@@ -443,6 +447,7 @@ const demo = {
   async updateUserProfile(uidX, patch) { const u = demo.data.users.find(x => x.uid === uidX); if (u) Object.assign(u, patch); state.users = [...demo.data.users]; if (uidX === state.user.uid) state.profile = u; demo.save(); notify('users'); },
   mail(emails, subject, html) { demo.data.mailOutbox.push({ to: emails, subject, html, at: Date.now() }); demo.data.mailOutbox = demo.data.mailOutbox.slice(-20); demo.save(); },
   async uploadBackup() { throw new Error('storage-unavailable'); }, async listBackups() { return []; },
+  async reportError() {}, async loadClientErrors() { return []; },
   refresh() {
     const gs = [...demo.data.goals].sort((a, b) => b.createdAt - a.createdAt);
     state.trash = { goals: gs.filter(g => g.deleted), tasks: demo.data.tasks.filter(t => t.deleted) };

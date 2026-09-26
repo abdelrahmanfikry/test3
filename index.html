@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>سجل أهدافي</title>
+  <meta name="app-version" content="6.0">
   <meta name="description" content="سجل أهدافي — أهداف ومهام يومية للفريق: لوحة تحكم، تقويم، تقارير، صلاحيات، وسجل نشاط. يعمل بدون إنترنت.">
   <meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
@@ -15,11 +16,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/project.css">
+  <link rel="stylesheet" href="css/odoo.css">
   <link rel="stylesheet" href="css/extras.css">
-  <link rel="modulepreload" href="js/app.js"><link rel="modulepreload" href="js/store.js"><link rel="modulepreload" href="js/data.js"><link rel="modulepreload" href="js/views.js"><link rel="modulepreload" href="js/ui.js"><link rel="modulepreload" href="js/utils.js"><link rel="modulepreload" href="js/model.js"><link rel="modulepreload" href="js/task-panel.js"><link rel="modulepreload" href="js/project-page.js"><link rel="modulepreload" href="js/kanban.js"><link rel="modulepreload" href="js/gantt.js"><link rel="modulepreload" href="js/activities.js"><link rel="modulepreload" href="js/chatbot.js"><link rel="modulepreload" href="js/lib.js"><link rel="modulepreload" href="js/inbox.js"><link rel="modulepreload" href="js/focus.js"><link rel="modulepreload" href="js/bulk.js"><link rel="modulepreload" href="js/palette.js"><link rel="modulepreload" href="js/trash.js"><link rel="modulepreload" href="js/backup.js"><link rel="modulepreload" href="js/gestures.js"><link rel="modulepreload" href="js/analytics.js"><link rel="modulepreload" href="js/notify.js"><link rel="modulepreload" href="js/presence.js"><link rel="modulepreload" href="js/templates.js"><link rel="modulepreload" href="js/digest.js"><link rel="modulepreload" href="js/ai.js"><link rel="modulepreload" href="js/capture.js"><link rel="modulepreload" href="js/today.js"><link rel="modulepreload" href="js/i18n.js"><link rel="modulepreload" href="js/share.js">
+  <link rel="modulepreload" href="js/app.js"><link rel="modulepreload" href="js/store.js"><link rel="modulepreload" href="js/data.js"><link rel="modulepreload" href="js/views.js"><link rel="modulepreload" href="js/views/shared.js"><link rel="modulepreload" href="js/views/dashboard.js"><link rel="modulepreload" href="js/views/goals.js"><link rel="modulepreload" href="js/views/tasks.js"><link rel="modulepreload" href="js/views/calendar.js"><link rel="modulepreload" href="js/views/reports.js"><link rel="modulepreload" href="js/views/team.js"><link rel="modulepreload" href="js/views/activity.js"><link rel="modulepreload" href="js/views/settings.js"><link rel="modulepreload" href="js/views/modals.js"><link rel="modulepreload" href="js/ui.js"><link rel="modulepreload" href="js/utils.js"><link rel="modulepreload" href="js/model.js"><link rel="modulepreload" href="js/task-panel.js"><link rel="modulepreload" href="js/project-page.js"><link rel="modulepreload" href="js/kanban.js"><link rel="modulepreload" href="js/gantt.js"><link rel="modulepreload" href="js/activities.js"><link rel="modulepreload" href="js/chatbot.js"><link rel="modulepreload" href="js/lib.js"><link rel="modulepreload" href="js/inbox.js"><link rel="modulepreload" href="js/focus.js"><link rel="modulepreload" href="js/bulk.js"><link rel="modulepreload" href="js/palette.js"><link rel="modulepreload" href="js/trash.js"><link rel="modulepreload" href="js/backup.js"><link rel="modulepreload" href="js/gestures.js"><link rel="modulepreload" href="js/analytics.js"><link rel="modulepreload" href="js/notify.js"><link rel="modulepreload" href="js/presence.js"><link rel="modulepreload" href="js/templates.js"><link rel="modulepreload" href="js/digest.js"><link rel="modulepreload" href="js/ai.js"><link rel="modulepreload" href="js/capture.js"><link rel="modulepreload" href="js/today.js"><link rel="modulepreload" href="js/i18n.js"><link rel="modulepreload" href="js/share.js"><link rel="modulepreload" href="js/monitor.js">
   <script>
     (function () {
-      try { var p = JSON.parse(localStorage.getItem('goals.prefs') || '{}'); var th = p.theme || 'auto'; if (th === 'auto') th = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; var h = document.documentElement; h.setAttribute('data-theme', th); if (p.accent && p.accent !== 'blue') h.setAttribute('data-accent', p.accent); if (p.fontSize && p.fontSize !== 'normal') h.setAttribute('data-font', p.fontSize); } catch (e) {}
+      try { var p = JSON.parse(localStorage.getItem('goals.prefs') || '{}'); var th = p.theme || 'auto'; if (th === 'auto') th = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; var h = document.documentElement; h.setAttribute('data-theme', th); h.setAttribute('data-skin', p.skin === 'classic' ? 'classic' : 'odoo'); if (p.accent && p.accent !== 'blue') h.setAttribute('data-accent', p.accent); if (p.fontSize && p.fontSize !== 'normal') h.setAttribute('data-font', p.fontSize); } catch (e) {}
       // Firebase يُحمَّل فقط خارج الوضع التجريبي (يوفّر ~700KB عند التجربة)، وبالترتيب الصحيح
       var demo = /demo/.test(location.hash) || localStorage.getItem('goals.demoOn') === '1';
       window.__fbReady = demo ? Promise.resolve(false) : new Promise(function (res) {
@@ -136,12 +138,26 @@
     <div class="main">
       <header class="topbar">
         <button class="iconbtn menu-btn" id="menuBtn" aria-label="القائمة"><svg class="ic"><use href="#i-menu"/></svg></button>
+        <a class="o-brand" href="#dashboard"><svg class="ic"><use href="#i-target"/></svg><span>سجل أهدافي</span></a>
+        <nav class="o-menu" aria-label="القائمة الرئيسية">
+          <a href="#dashboard" data-view="dashboard"><svg class="ic"><use href="#i-home"/></svg><span>لوحة التحكم</span></a>
+          <a href="#goals" data-view="goals"><svg class="ic"><use href="#i-flag"/></svg><span>المشاريع</span></a>
+          <a href="#tasks" data-view="tasks"><svg class="ic"><use href="#i-check"/></svg><span>المهام</span></a>
+          <a href="#calendar" data-view="calendar"><svg class="ic"><use href="#i-cal"/></svg><span>التقويم</span></a>
+          <a href="#reports" data-view="reports"><svg class="ic"><use href="#i-chart"/></svg><span>التقارير</span></a>
+          <div class="menu-wrap"><button class="o-more" id="moreMenuBtn"><svg class="ic"><use href="#i-dots"/></svg><span>المزيد</span></button>
+            <div class="menu" id="moreMenu" hidden>
+              <a href="#activities" data-view="activities"><svg class="ic"><use href="#i-history"/></svg> الأنشطة</a>
+              <a href="#activity" data-view="activity"><svg class="ic"><use href="#i-list"/></svg> سجل النشاط</a>
+              <a href="#team" data-view="team"><svg class="ic"><use href="#i-users"/></svg> الفريق</a>
+              <a href="#trash" data-view="trash"><svg class="ic"><use href="#i-trash"/></svg> سلة المحذوفات</a>
+              <a href="#settings" data-view="settings"><svg class="ic"><use href="#i-settings"/></svg> الإعدادات</a>
+            </div></div>
+        </nav>
         <h1 id="pageTitle">لوحة التحكم</h1>
         <div class="top-actions">
           <button class="btn search-btn" id="searchBtn"><svg class="ic"><use href="#i-search"/></svg><span>بحث</span><kbd>Ctrl K</kbd></button>
           <button class="timer-pill" id="timerPill" hidden title="المؤقت يعمل"><svg class="ic"><use href="#i-timer"/></svg><span id="timerPillTxt"></span></button>
-          <button class="btn hide-sm" id="addGoalTop"><svg class="ic"><use href="#i-flag"/></svg><span>هدف</span></button>
-          <button class="btn btn-primary hide-sm" id="addTaskTop"><svg class="ic"><use href="#i-plus"/></svg><span>مهمة</span></button>
           <span class="badge cat pending-badge" id="pendingBadge" hidden title="تغييرات محفوظة على الجهاز وستُرفع عند عودة الاتصال"></span>
           <button class="iconbtn" id="todayBtn" title="خطة اليوم — وضع الاجتماع (T)"><svg class="ic"><use href="#i-sun"/></svg></button>
           <button class="iconbtn" id="focusBtn" title="وضع التركيز (F)"><svg class="ic"><use href="#i-target"/></svg></button>
@@ -149,6 +165,13 @@
           <button class="iconbtn" id="themeBtn" title="المظهر"><svg class="ic"><use href="#i-moon"/></svg></button>
         </div>
       </header>
+      <div class="o-cp" id="cp">
+        <nav class="o-crumbs" aria-label="مسار التنقل"><a id="crumbParent" href="#goals" hidden>المشاريع</a><span class="sep" id="crumbSep" hidden>/</span><h1 id="cpTitle">لوحة التحكم</h1></nav>
+        <div class="o-cp-actions">
+          <button class="btn hide-sm" id="addGoalTop"><svg class="ic"><use href="#i-flag"/></svg><span>مشروع جديد</span></button>
+          <button class="btn btn-primary" id="addTaskTop"><svg class="ic"><use href="#i-plus"/></svg><span>مهمة جديدة</span></button>
+        </div>
+      </div>
       <main class="view" id="view"></main>
     </div>
 

@@ -77,6 +77,12 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
       allow update, delete: if signedIn() && (isAdmin() || resource.data.createdBy == request.auth.uid);
     }
+    // أخطاء واجهة المستخدمين: أي مستخدم مسجّل يبلّغ، المشرف يقرأ
+    match /clientErrors/{id} {
+      allow create: if signedIn();
+      allow read, delete: if isAdmin();
+      allow update: if false;
+    }
     // لقطات المشاركة للقراءة فقط: قراءة عامة بالرابط، إنشاء/تعديل/حذف لصاحبها
     match /shares/{token} {
       allow read: if true;

@@ -1,0 +1,124 @@
+/* ===== مظهر Odoo: شريط علوي بلون العلامة، لوحة تحكم بمسار تنقّل، قوائم مسطّحة، كانبان بأعمدة، نموذج «ورقة» مع شريط مراحل ===== */
+[data-skin="odoo"] {
+  --bg: #f4f4f4; --surface: #fff; --surface-2: #f9f9f9; --surface-3: #ededed; --border: #dee2e6;
+  --text: #212529; --text-2: #495057; --text-3: #6c757d;
+  --primary: #714B67; --primary-2: #5c3d54; --primary-soft: #efe4ec; --on-primary: #fff;
+  --success: #28a745; --success-soft: #e3f5e8; --warning: #d99a00; --warning-soft: #fff4d6; --danger: #dc3545; --danger-soft: #fbe3e5; --info: #017e84; --info-soft: #dcf1f2;
+  --shadow: 0 1px 2px rgba(0,0,0,.05); --shadow-lg: 0 8px 28px rgba(0,0,0,.16);
+  --r: 6px; --rs: 4px; --topbar: 46px; --brand: #714B67; --brand-text: #fff;
+}
+[data-skin="odoo"][data-theme="dark"] {
+  --bg: #1b1b1b; --surface: #262626; --surface-2: #222; --surface-3: #333; --border: #3d3d3d;
+  --text: #e9ecef; --text-2: #b9bec4; --text-3: #8a9097;
+  --primary: #b58aa9; --primary-2: #c9a3bf; --primary-soft: #3b2c37; --on-primary: #1b1b1b;
+  --success: #4cc06b; --success-soft: #1e3a27; --warning: #f0b429; --warning-soft: #3d3117; --danger: #ef5b6b; --danger-soft: #3f1d22; --info: #2cb1b7; --info-soft: #163a3c;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 8px 28px rgba(0,0,0,.6); --brand: #2b2b2b;
+}
+[data-skin="odoo"] body { font-size: 14.5px; }
+[data-skin="odoo"] h1 { font-size: 1.3rem; } [data-skin="odoo"] h2 { font-size: 1.02rem; }
+
+/* ---- الشريط العلوي (navbar) ---- */
+[data-skin="odoo"] .topbar { background: var(--brand); color: var(--brand-text); border-bottom: none; backdrop-filter: none; height: var(--topbar); padding: 0 .5rem; gap: .25rem; }
+[data-skin="odoo"] .topbar #pageTitle { display: none; }
+[data-skin="odoo"] .topbar .iconbtn, [data-skin="odoo"] .topbar .btn { color: var(--brand-text); background: transparent; border-color: transparent; box-shadow: none; }
+[data-skin="odoo"] .topbar .iconbtn:hover, [data-skin="odoo"] .topbar .btn:hover, [data-skin="odoo"] .topbar .iconbtn.on { background: rgba(255,255,255,.14); color: var(--brand-text); }
+[data-skin="odoo"] .topbar .search-btn { background: rgba(255,255,255,.14); border-radius: 4px; padding: .3rem .7rem; } [data-skin="odoo"] .topbar .search-btn kbd { background: rgba(255,255,255,.18); color: #fff; border: none; }
+[data-skin="odoo"] .timer-pill { background: rgba(255,255,255,.2); color: var(--brand-text); }
+[data-skin="odoo"] .inbox-badge { border: 2px solid var(--brand); } [data-skin="odoo"] .pending-badge { background: rgba(255,255,255,.2); color: #fff; }
+[data-skin="odoo"] .menu-btn { display: inline-flex; }
+.o-brand, .o-menu { display: none; }
+[data-skin="odoo"] .o-brand { display: inline-flex; align-items: center; gap: .35rem; color: var(--brand-text); font-weight: 800; text-decoration: none; padding: 0 .5rem; white-space: nowrap; }
+[data-skin="odoo"] .o-menu { display: flex; align-items: stretch; height: var(--topbar); margin-inline-start: .3rem; }
+[data-skin="odoo"] .o-menu > a, [data-skin="odoo"] .o-menu .o-more { color: rgba(255,255,255,.85); text-decoration: none; padding: 0 .7rem; display: inline-flex; align-items: center; gap: .3rem; font-weight: 700; font-size: .88rem; border: none; border-bottom: 3px solid transparent; background: transparent; cursor: pointer; white-space: nowrap; }
+[data-skin="odoo"] .o-menu > a:hover, [data-skin="odoo"] .o-menu .o-more:hover { background: rgba(255,255,255,.1); color: #fff; }
+[data-skin="odoo"] .o-menu > a.active { color: #fff; background: rgba(255,255,255,.12); border-bottom-color: #fff; }
+[data-skin="odoo"] .o-menu .menu-wrap { display: flex; } [data-skin="odoo"] .o-menu .menu { top: var(--topbar); inset-inline-start: 0; inset-inline-end: auto; min-width: 210px; }
+[data-skin="odoo"] .o-menu .menu a { display: flex; align-items: center; gap: .5rem; padding: .5rem .7rem; color: var(--text); text-decoration: none; border-radius: 6px; font-weight: 600; } [data-skin="odoo"] .o-menu .menu a:hover { background: var(--surface-3); } [data-skin="odoo"] .o-menu .menu a.active { color: var(--primary); }
+[data-skin="odoo"] .o-menu .menu a[hidden] { display: none; }
+[data-skin="odoo"] .o-menu .ic { width: 1.05em; height: 1.05em; }
+@media (max-width: 1100px) { [data-skin="odoo"] .o-menu > a span { display: none; } [data-skin="odoo"] .o-menu > a { padding: 0 .55rem; } }
+@media (max-width: 900px) { [data-skin="odoo"] .o-menu { display: none; } [data-skin="odoo"] .o-brand span { display: none; } }
+
+/* لوحة التحكم (control panel): مسار التنقل + الإجراءات */
+.o-cp { display: flex; align-items: center; gap: .8rem; padding: .5rem 1.2rem; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: var(--topbar); z-index: 25; min-height: 50px; }
+.o-crumbs { display: flex; align-items: center; gap: .45rem; min-width: 0; } .o-crumbs a { color: var(--text-3); text-decoration: none; font-weight: 600; white-space: nowrap; } .o-crumbs a:hover { color: var(--primary); } .o-crumbs .sep { color: var(--text-3); } .o-crumbs h1 { margin: 0; font-size: 1.1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o-cp-actions { margin-inline-start: auto; display: flex; gap: .4rem; align-items: center; }
+@media (max-width: 900px) { .o-cp { padding: .45rem .9rem; top: var(--topbar); } .o-cp-actions .btn span { display: none; } .o-cp-actions .btn { padding: .4rem .55rem; } }
+[data-skin="classic"] .topbar #pageTitle { display: none; }
+
+/* الشريط الجانبي كدرج تطبيقات (off-canvas) على كل المقاسات */
+[data-skin="odoo"] .app { grid-template-columns: 1fr; }
+[data-skin="odoo"] .sidebar { position: fixed; inset-block: 0; inset-inline-start: 0; width: 280px; transform: translateX(100%); transition: transform .22s; box-shadow: var(--shadow-lg); z-index: 60; background: var(--surface); }
+[data-skin="odoo"][dir="ltr"] .sidebar, [data-skin="odoo"] [dir="ltr"] .sidebar { transform: translateX(-100%); }
+[data-skin="odoo"] .sidebar.open { transform: none; }
+[data-skin="odoo"] .sidebar-bg { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 59; opacity: 0; pointer-events: none; transition: opacity .22s; }
+[data-skin="odoo"] .sidebar.open + .sidebar-bg { opacity: 1; pointer-events: auto; }
+[data-skin="odoo"] .sidebar .brand { background: var(--brand); color: #fff; margin: -1rem -.8rem .8rem; padding: .9rem 1rem; border-radius: 0; }
+[data-skin="odoo"] .nav a { border-radius: 4px; padding: .5rem .7rem; } [data-skin="odoo"] .nav a.active { background: var(--primary-soft); color: var(--primary); }
+
+/* ---- المحتوى ---- */
+[data-skin="odoo"] .view { padding: 1rem 1.2rem 5rem; max-width: 1400px; animation: none; }
+[data-skin="odoo"] .panel { box-shadow: none; border-radius: var(--r); }
+[data-skin="odoo"] .kpi { box-shadow: none; border-radius: var(--rs); } [data-skin="odoo"] .kpi-value { font-size: 1.45rem; }
+[data-skin="odoo"] .toolbar { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); padding: .5rem .7rem; margin-bottom: .8rem; }
+[data-skin="odoo"] .toolbar h2 { font-size: 1rem; }
+[data-skin="odoo"] .seg { background: var(--surface-3); border-radius: 4px; padding: 2px; } [data-skin="odoo"] .seg button { border-radius: 3px; } [data-skin="odoo"] .seg button.active { box-shadow: none; background: var(--surface); color: var(--primary); }
+[data-skin="odoo"] .view-switch button { border-radius: 3px; }
+[data-skin="odoo"] .btn { border-radius: 4px; font-weight: 600; box-shadow: none; padding: .45rem .9rem; } [data-skin="odoo"] .btn-sm { padding: .32rem .65rem; }
+[data-skin="odoo"] :is(.view, .o-cp, .modal, .task-drawer, .drawer, .focus-overlay, .bulk-bar, .auth-card, .inbox-panel) .btn:not(.btn-primary):not(.btn-danger):not(.btn-ok) { background: var(--surface); border-color: #c9ccd0; } [data-skin="odoo"][data-theme="dark"] :is(.view, .o-cp, .modal, .task-drawer, .drawer, .focus-overlay, .bulk-bar, .auth-card, .inbox-panel) .btn:not(.btn-primary):not(.btn-danger):not(.btn-ok) { border-color: var(--border); }
+[data-skin="odoo"] .btn-primary { background: var(--primary); border-color: var(--primary); }
+[data-skin="odoo"] input, [data-skin="odoo"] select, [data-skin="odoo"] textarea { border-radius: 4px; }
+[data-skin="odoo"] .badge { border-radius: 3px; font-weight: 700; }
+[data-skin="odoo"] .chip { border-radius: 4px; } [data-skin="odoo"] .chip.on { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
+[data-skin="odoo"] .hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1rem 1.2rem; }
+[data-skin="odoo"] .empty { border: 1px dashed var(--border); border-radius: var(--r); background: var(--surface); }
+
+/* قائمة المهام كعرض «قائمة» في Odoo: صفوف مسطّحة داخل جدول واحد */
+[data-skin="odoo"] .task-list { gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); overflow: hidden; }
+[data-skin="odoo"] .task { border: none; border-bottom: 1px solid var(--border); border-inline-start: 3px solid transparent; border-radius: 0; background: transparent; padding: .5rem .7rem; }
+[data-skin="odoo"] .task:last-child { border-bottom: none; } [data-skin="odoo"] .task:hover { background: var(--surface-2); }
+[data-skin="odoo"] .task-list.compact { border: none; background: transparent; } [data-skin="odoo"] .task-list.compact .task { background: transparent; }
+[data-skin="odoo"] .grp-title { background: var(--surface-3); padding: .4rem .7rem; border-radius: var(--rs) var(--rs) 0 0; margin: .9rem 0 0; font-size: .85rem; } [data-skin="odoo"] .grp-title + .task-list { border-top-left-radius: 0; border-top-right-radius: 0; }
+[data-skin="odoo"] .task-group:first-child .grp-title { margin-top: 0; }
+[data-skin="odoo"] .quick-add { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); }
+
+/* كارت المشروع */
+[data-skin="odoo"] .goal-card { box-shadow: none; border-radius: var(--rs); border-inline-start: 4px solid var(--gc); }
+[data-skin="odoo"] .goal-card:hover { box-shadow: var(--shadow-lg); }
+
+/* الكانبان */
+[data-skin="odoo"] .kanban { gap: .6rem; }
+[data-skin="odoo"] .kcol { background: transparent; border: none; border-radius: 0; padding: 0 .2rem; min-width: 290px; }
+[data-skin="odoo"] .kcol-head { border-bottom: 2px solid var(--border); padding: .3rem .2rem .45rem; background: transparent; font-size: .92rem; }
+[data-skin="odoo"] .kcol-count { background: transparent; color: var(--text-3); font-weight: 700; }
+[data-skin="odoo"] .kcol-body { background: transparent; padding: .5rem 0; }
+[data-skin="odoo"] .kcard { border: 1px solid var(--border); border-radius: 4px; box-shadow: none; background: var(--surface); }
+[data-skin="odoo"] .kcard:hover { box-shadow: var(--shadow-lg); border-color: #c9ccd0; }
+[data-skin="odoo"] .kcol.fold { background: var(--surface-3); border-radius: 4px; }
+[data-skin="odoo"] .kcol-add { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .5rem; }
+
+/* صفحة المشروع والتبويبات */
+[data-skin="odoo"] .pp-head { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); box-shadow: none; }
+[data-skin="odoo"] .tabs a { border-radius: 0; border-bottom: 3px solid transparent; padding: .5rem .9rem; } [data-skin="odoo"] .tabs a.on { background: transparent; border-bottom-color: var(--primary); color: var(--primary); }
+
+/* بطاقة المهمة كنموذج Odoo: ورقة بيضاء + شريط مراحل */
+[data-skin="odoo"] .task-drawer { background: var(--bg); }
+[data-skin="odoo"] .tp-head { background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: none; }
+[data-skin="odoo"] .tp-title { border: none; border-bottom: 1px solid transparent; font-size: 1.35rem; padding: .2rem 0; border-radius: 0; background: transparent; } [data-skin="odoo"] .tp-title:hover, [data-skin="odoo"] .tp-title:focus { border-bottom-color: var(--primary); box-shadow: none; }
+[data-skin="odoo"] .tp-stages { justify-content: flex-end; gap: 0; flex-wrap: wrap; }
+[data-skin="odoo"] .tp-stage { border-radius: 0; border: 1px solid var(--border); margin-inline-end: -1px; padding: .3rem .85rem; background: var(--surface); color: var(--text-2); font-weight: 700; font-size: .82rem; }
+[data-skin="odoo"] .tp-stage:first-child { border-start-start-radius: 4px; border-end-start-radius: 4px; } [data-skin="odoo"] .tp-stage:last-child { border-start-end-radius: 4px; border-end-end-radius: 4px; }
+[data-skin="odoo"] .tp-stage.on { background: var(--primary); color: var(--on-primary); border-color: var(--primary); } [data-skin="odoo"] .tp-stage.done.on { background: var(--success); border-color: var(--success); color: #fff; }
+[data-skin="odoo"] .tp-tabs button { border-radius: 0; border-bottom: 3px solid transparent; } [data-skin="odoo"] .tp-tabs button.on { background: transparent; border-bottom-color: var(--primary); color: var(--primary); }
+[data-skin="odoo"] .tp-body { background: var(--surface); margin: .8rem; border: 1px solid var(--border); border-radius: var(--r); padding: 1rem; box-shadow: var(--shadow); }
+[data-skin="odoo"] .tp-chatter { background: transparent; border-top: none; padding: 0 .8rem 1rem; }
+[data-skin="odoo"] .ch-msg { background: var(--surface); border: 1px solid var(--border); border-radius: var(--rs); padding: .6rem .7rem; }
+[data-skin="odoo"] .drawer, [data-skin="odoo"] .modal { border-radius: var(--r); box-shadow: var(--shadow-lg); }
+
+/* الجداول */
+[data-skin="odoo"] .table th { background: var(--surface-2); font-weight: 700; color: var(--text-2); font-size: .82rem; } [data-skin="odoo"] .table tbody tr:hover { background: var(--surface-2); }
+
+/* شاشة الدخول */
+[data-skin="odoo"] .auth-art { background: var(--brand); } [data-skin="odoo"] .auth-card { border-radius: var(--r); box-shadow: var(--shadow-lg); }
+[data-skin="odoo"] .splash-logo { background: var(--brand); border-radius: 12px; }
+[data-skin="odoo"] .bottom-nav a.active { color: var(--primary); }

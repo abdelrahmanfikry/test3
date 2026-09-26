@@ -1,4 +1,5 @@
 #!/bin/sh
 # يشغّل الاختبارات قبل كل رفع؛ فعّله بـ: git config core.hooksPath .githooks
-echo "▶ running tests before push…"
+echo "▶ unit tests…"
 npm test --silent || { echo "✖ tests failed — push aborted"; exit 1; }
+if node -e "require.resolve('playwright')" 2>/dev/null; then echo "▶ UI smoke test…"; npm run test:ui --silent || { echo "✖ UI test failed — push aborted"; exit 1; }; fi
