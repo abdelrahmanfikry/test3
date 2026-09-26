@@ -121,3 +121,9 @@
 .wl-bar .open.over { background: var(--danger); } .wl-bar .open.high { background: var(--warning); } .badge.st-late { background: var(--danger-soft); color: var(--danger); }
 .alert { padding: .6rem .8rem; border-radius: var(--rs); font-size: .88rem; } .alert.bad { background: var(--danger-soft); color: var(--danger); }
 .stage-row select { max-width: 160px; font-size: .8rem; padding: .3rem .4rem; }
+/* شريط الموبايل السفلي: 6 عناصر لا تتجاوز عرض الشاشة */
+.bottom-nav a { min-width: 0; flex: 1 1 0; padding-inline: .1rem; } .bottom-nav a span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* موبايل: لا تجاوز أفقي */
+.week-strip { grid-template-columns: repeat(7, minmax(0, 1fr)); } .week-day { min-width: 0; overflow: hidden; } .week-day .wd-count { font-size: .68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero { flex-wrap: wrap; } .hero-actions { flex-wrap: wrap; } .panel, .grid-2 > * { min-width: 0; } .kpis, .grid-2 { max-width: 100%; }
+@media (max-width: 480px) { .week-day .wd-name { font-size: .62rem; } .week-day .wd-count { font-size: .6rem; } }

@@ -20,7 +20,12 @@ const base = `http://127.0.0.1:${server.address().port}/`;
 let chromium;
 try { ({ chromium } = await import('playwright')); } catch { console.log('⚠ playwright غير مثبّت — تخطّي اختبار الواجهة (npm i -D playwright && npx playwright install chromium)'); server.close(); process.exit(0); }
 
-const browser = await chromium.launch();
+// نجرّب Edge ثم Chrome المثبّتين (بعض أجهزة Windows تمنع كروميوم المحمّل من الشبكة) ثم كروميوم المرفق؛ PW_CHANNEL يفرض قناة
+let browser = null;
+for (const channel of [...new Set([process.env.PW_CHANNEL, 'msedge', 'chrome'].filter(Boolean)), undefined]) {
+  try { browser = await chromium.launch(channel ? { channel } : {}); console.log('▶ المتصفح:', channel || 'chromium'); break; } catch { /* جرّب التالي */ }
+}
+if (!browser) { console.log('✖ تعذّر تشغيل أي متصفح'); server.close(); process.exit(1); }
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
@@ -64,7 +69,8 @@ await page.keyboard.press('Escape');
 await page.setViewportSize({ width: 390, height: 800 });
 await page.evaluate(() => { location.hash = 'dashboard'; });
 await page.waitForTimeout(400);
-check('لا تمرير أفقي على الموبايل', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+const ov = await page.evaluate(() => { const vw = window.innerWidth; return { ok: document.documentElement.scrollWidth <= vw + 1, bad: [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > vw + 1 || r.left < -1) && !el.closest('.sidebar') && getComputedStyle(el).position !== 'fixed'; }).slice(0, 6).map(el => el.tagName.toLowerCase() + '#' + el.id + '.' + [...el.classList].join('.') + ' L' + Math.round(el.getBoundingClientRect().left) + ' R' + Math.round(el.getBoundingClientRect().right)) }; });
+check('لا تمرير أفقي على الموبايل', ov.ok); if (!ov.ok) console.log('   يتجاوز العرض:', ov.bad.join(' | '));
 
 check('لا أخطاء في الـ console', errors.length === 0);
 if (errors.length) console.log(errors.join('\n'));
