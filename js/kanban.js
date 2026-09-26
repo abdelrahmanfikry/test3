@@ -15,6 +15,11 @@ export function renderKanban(container, opts) {
     const items = groups.get(col.id) || [];
     const isFold = folded.has(col.id);
     const over = col.limit && items.length > col.limit;
+    // شريط تقدّم العمود كما في Odoo: منجز (أخضر) / متأخر (أحمر) / أولوية عالية (أصفر) / الباقي
+    const n = Math.max(1, items.length);
+    const seg = { done: items.filter(i => i.completed).length, late: items.filter(i => !i.completed && i.dueDate && i.dueDate < new Date().toISOString().slice(0, 10)).length };
+    seg.high = items.filter(i => !i.completed && i.priority === 'high' && !(i.dueDate && i.dueDate < new Date().toISOString().slice(0, 10))).length;
+    const bar = items.length ? `<div class="kcol-bar" title="منجز ${seg.done} · متأخر ${seg.late} · عالي ${seg.high}"><i class="done" style="width:${(seg.done / n) * 100}%"></i><i class="late" style="width:${(seg.late / n) * 100}%"></i><i class="high" style="width:${(seg.high / n) * 100}%"></i></div>` : '';
     return `<section class="kcol ${isFold ? 'folded' : ''} ${col.done ? 'done' : ''}" data-col="${col.id}" style="--kc:${col.color || '#64748b'}">
       <header class="kcol-head">
         <button class="kcol-fold" data-fold="${col.id}" title="${isFold ? 'فتح' : 'طيّ'}"><svg class="ic"><use href="#i-${isFold ? 'next' : 'prev'}"/></svg></button>
@@ -23,6 +28,7 @@ export function renderKanban(container, opts) {
         ${opts.onColMenu ? `<button class="iconbtn kcol-menu" data-colmenu="${col.id}" aria-label="خيارات"><svg class="ic"><use href="#i-dots"/></svg></button>` : ''}
         ${opts.onQuickAdd && !col.done ? `<button class="iconbtn" data-qa="${col.id}" title="إضافة"><svg class="ic"><use href="#i-plus"/></svg></button>` : ''}
       </header>
+      ${isFold ? '' : bar}
       <div class="kcol-body" data-body="${col.id}">${isFold ? '' : items.map(it => `<article class="kcard" data-id="${it.id}">${opts.card(it)}</article>`).join('')}</div>
       ${opts.onQuickAdd && !col.done && !isFold ? `<form class="kcol-add" data-qaform="${col.id}" hidden><input type="text" placeholder="اسم المهمة… Enter" maxlength="140"><div class="btn-row"><button type="submit" class="btn btn-primary btn-sm">إضافة</button><button type="button" class="btn btn-sm" data-cancel>إلغاء</button></div></form>` : ''}
     </section>`;

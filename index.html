@@ -75,6 +75,7 @@
     <symbol id="i-star" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></symbol>
     <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></symbol>
     <symbol id="i-camera" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><circle cx="5" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="19" cy="5" r="2" fill="currentColor"/><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/><circle cx="5" cy="19" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/><circle cx="19" cy="19" r="2" fill="currentColor"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   </defs></svg>
 
@@ -91,6 +92,7 @@
       </ul>
     </div>
     <div class="auth-card">
+      <div class="auth-logo"><span class="app-icon"><svg class="ic"><use href="#i-target"/></svg></span><span>سجل أهدافي</span></div>
       <h1 id="authTitle">مرحباً بعودتك</h1>
       <p class="muted" id="authSub">ادخل إلى أهدافك وخطتك اليومية</p>
       <form id="authForm" novalidate>
@@ -137,8 +139,8 @@
 
     <div class="main">
       <header class="topbar">
-        <button class="iconbtn menu-btn" id="menuBtn" aria-label="القائمة"><svg class="ic"><use href="#i-menu"/></svg></button>
-        <a class="o-brand" href="#dashboard"><svg class="ic"><use href="#i-target"/></svg><span>سجل أهدافي</span></a>
+        <button class="iconbtn menu-btn" id="menuBtn" aria-label="القائمة"><svg class="ic menu-ic"><use href="#i-menu"/></svg><svg class="ic grid-ic"><use href="#i-grid"/></svg></button>
+        <a class="o-brand" href="#dashboard"><span class="app-icon"><svg class="ic"><use href="#i-target"/></svg></span><span>سجل أهدافي</span></a>
         <nav class="o-menu" aria-label="القائمة الرئيسية">
           <a href="#dashboard" data-view="dashboard"><svg class="ic"><use href="#i-home"/></svg><span>لوحة التحكم</span></a>
           <a href="#goals" data-view="goals"><svg class="ic"><use href="#i-flag"/></svg><span>المشاريع</span></a>
@@ -163,6 +165,15 @@
           <button class="iconbtn" id="focusBtn" title="وضع التركيز (F)"><svg class="ic"><use href="#i-target"/></svg></button>
           <div class="inbox-wrap"><button class="iconbtn" id="inboxBtn" title="الإشعارات (I)" aria-label="الإشعارات"><svg class="ic"><use href="#i-bell"/></svg><span class="inbox-badge" id="inboxBadge" hidden></span></button><div class="inbox-panel" id="inboxPanel" hidden></div></div>
           <button class="iconbtn" id="themeBtn" title="المظهر"><svg class="ic"><use href="#i-moon"/></svg></button>
+          <div class="menu-wrap o-user"><button class="o-user-btn" id="userMenuBtn" aria-label="حسابي"><span class="avatar" id="userAvatar">أ</span><span id="userMenuName"></span></button>
+            <div class="menu" id="userMenu" hidden>
+              <div class="o-user-head"><strong id="userMenuName2"></strong><div class="hint" id="userMenuEmail"></div></div>
+              <a href="#settings"><svg class="ic"><use href="#i-settings"/></svg> التفضيلات</a>
+              <a href="#trash"><svg class="ic"><use href="#i-trash"/></svg> سلة المحذوفات</a>
+              <button type="button" id="userShortcuts"><svg class="ic"><use href="#i-note"/></svg> الاختصارات</button>
+              <div class="menu-sep"></div>
+              <button type="button" id="userSignOut"><svg class="ic"><use href="#i-logout"/></svg> تسجيل الخروج</button>
+            </div></div>
         </div>
       </header>
       <div class="o-cp" id="cp">

@@ -122,3 +122,65 @@
 [data-skin="odoo"] .auth-art { background: var(--brand); } [data-skin="odoo"] .auth-card { border-radius: var(--r); box-shadow: var(--shadow-lg); }
 [data-skin="odoo"] .splash-logo { background: var(--brand); border-radius: 12px; }
 [data-skin="odoo"] .bottom-nav a.active { color: var(--primary); }
+
+/* ===== أقرب إلى Odoo 17: قوائم نصية، أيقونة تطبيق، قائمة المستخدم، لوحة تحكم مدمجة، درج تطبيقات، كانبان بشريط تقدّم ===== */
+[data-skin="odoo"] body { font-weight: 400; } [data-skin="odoo"] h1, [data-skin="odoo"] h2, [data-skin="odoo"] h3, [data-skin="odoo"] h4 { font-weight: 700; }
+[data-skin="odoo"] .btn { font-weight: 500; } [data-skin="odoo"] .badge { font-weight: 600; } [data-skin="odoo"] .task-title, [data-skin="odoo"] .kc-title { font-weight: 600; }
+.app-icon { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; background: #fff; color: var(--brand, #714B67); flex: none; } .app-icon .ic { width: 16px; height: 16px; }
+[data-skin="classic"] .app-icon { background: var(--primary); color: #fff; }
+.menu-btn .grid-ic { display: none; } [data-skin="odoo"] .menu-btn .grid-ic { display: block; } [data-skin="odoo"] .menu-btn .menu-ic { display: none; }
+[data-skin="odoo"] .o-brand { font-size: .98rem; gap: .5rem; padding: 0 .4rem 0 .2rem; }
+/* عناصر القائمة نصية فقط على الشاشات الواسعة كما في Odoo */
+@media (min-width: 1101px) { [data-skin="odoo"] .o-menu > a .ic, [data-skin="odoo"] .o-menu .o-more .ic { display: none; } }
+[data-skin="odoo"] .o-menu > a, [data-skin="odoo"] .o-menu .o-more { font-weight: 500; font-size: .92rem; padding: 0 .75rem; border-bottom: none; }
+[data-skin="odoo"] .o-menu > a.active { background: rgba(255,255,255,.14); border-bottom: none; }
+[data-skin="odoo"] .o-menu .o-more.active { background: rgba(255,255,255,.14); }
+/* قائمة المستخدم في نهاية الشريط */
+.o-user { display: none; } [data-skin="odoo"] .o-user { display: flex; align-items: center; margin-inline-start: .2rem; }
+.o-user-btn { display: inline-flex; align-items: center; gap: .45rem; border: none; background: transparent; color: var(--brand-text, #fff); cursor: pointer; padding: .2rem .5rem; border-radius: 4px; font-weight: 600; font-size: .88rem; height: 36px; } .o-user-btn:hover { background: rgba(255,255,255,.14); }
+.o-user-btn .avatar { width: 26px; height: 26px; font-size: .75rem; background: rgba(255,255,255,.25); color: #fff; border: 1px solid rgba(255,255,255,.5); }
+.o-user .menu { top: calc(var(--topbar) - 4px); min-width: 230px; } .o-user .menu a, .o-user .menu button { color: var(--text); }
+.o-user-head { padding: .5rem .7rem .4rem; border-bottom: 1px solid var(--border); margin-bottom: .3rem; }
+@media (max-width: 900px) { .o-user-btn span:not(.avatar) { display: none; } }
+[data-skin="odoo"] .sidebar-user { display: none; }
+/* شريط أدوات الشاشة يندمج بصرياً مع لوحة التحكم (صف البحث والفلاتر في Odoo) */
+[data-skin="odoo"] .view > .toolbar:first-child { position: sticky; top: calc(var(--topbar) + 50px); z-index: 20; margin: -1rem -1.2rem 1rem; border-radius: 0; border-width: 0 0 1px; padding: .5rem 1.2rem; box-shadow: 0 2px 6px rgba(0,0,0,.04); }
+@media (max-width: 900px) { [data-skin="odoo"] .view > .toolbar:first-child { margin: -1rem -.9rem 1rem; padding: .5rem .9rem; position: static; } }
+[data-skin="odoo"] .toolbar .search { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; min-width: 240px; } [data-skin="odoo"] .toolbar .search input { border: none; background: transparent; } [data-skin="odoo"] .toolbar .search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+[data-skin="odoo"] .toolbar select { border-radius: 4px; background-color: var(--surface); }
+[data-skin="odoo"] .view-switch { border: 1px solid var(--border); border-radius: 4px; padding: 2px; background: var(--surface); } [data-skin="odoo"] .view-switch button.on { background: var(--primary-soft); color: var(--primary); }
+[data-skin="odoo"] .saved-filters .chip { border-radius: 4px; }
+/* لوحة التحكم */
+[data-skin="odoo"] .o-cp { min-height: 52px; padding: .45rem 1.2rem; } [data-skin="odoo"] .o-crumbs h1 { font-size: 1.15rem; font-weight: 600; } [data-skin="odoo"] .o-crumbs a { font-weight: 500; }
+[data-skin="odoo"] .o-cp-actions .btn-primary { padding: .42rem .95rem; }
+/* درج التطبيقات: شبكة أيقونات كتطبيقات Odoo */
+[data-skin="odoo"] .sidebar { width: 320px; padding: 1rem; }
+[data-skin="odoo"] .sidebar .nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: .5rem; }
+[data-skin="odoo"] .sidebar .nav a { flex-direction: column; justify-content: center; text-align: center; gap: .45rem; padding: .8rem .3rem; font-size: .8rem; font-weight: 600; border-radius: 8px; position: relative; }
+[data-skin="odoo"] .sidebar .nav a .ic { width: 46px; height: 46px; padding: 11px; border-radius: 12px; color: #fff; background: #714B67; box-shadow: 0 2px 6px rgba(0,0,0,.15); }
+[data-skin="odoo"] .sidebar .nav a:nth-child(2) .ic { background: #017e84; } [data-skin="odoo"] .sidebar .nav a:nth-child(3) .ic { background: #2c8b3f; } [data-skin="odoo"] .sidebar .nav a:nth-child(4) .ic { background: #e46e1f; } [data-skin="odoo"] .sidebar .nav a:nth-child(5) .ic { background: #4f6fbf; } [data-skin="odoo"] .sidebar .nav a:nth-child(6) .ic { background: #b5553f; } [data-skin="odoo"] .sidebar .nav a:nth-child(7) .ic { background: #6b7280; } [data-skin="odoo"] .sidebar .nav a:nth-child(8) .ic { background: #8a4b9b; } [data-skin="odoo"] .sidebar .nav a:nth-child(9) .ic { background: #4b5563; }
+[data-skin="odoo"] .sidebar .nav a kbd { display: none; } [data-skin="odoo"] .sidebar .nav a .nav-badge { position: absolute; top: .4rem; inset-inline-end: 1rem; }
+[data-skin="odoo"] .sidebar .nav a.active { background: var(--primary-soft); }
+[data-skin="odoo"] #favWrap { margin-top: .8rem; } [data-skin="odoo"] .nav.fav { display: flex; flex-direction: column; gap: .1rem; } [data-skin="odoo"] .nav.fav a { flex-direction: row; text-align: start; padding: .45rem .6rem; }
+/* كانبان: شريط تقدّم العمود ورأس خفيف */
+.kcol-bar { display: flex; height: 6px; background: var(--surface-3); border-radius: 999px; overflow: hidden; margin: .2rem .2rem .3rem; } .kcol-bar i { display: block; height: 100%; } .kcol-bar .done { background: var(--success); } .kcol-bar .late { background: var(--danger); } .kcol-bar .high { background: var(--warning); }
+[data-skin="odoo"] .kcol-head { border-bottom: none; padding-bottom: .15rem; } [data-skin="odoo"] .kcol-head h3 { font-size: .95rem; font-weight: 600; } [data-skin="odoo"] .kcol-dot { display: none; }
+[data-skin="odoo"] .kcard { border-radius: 6px; padding: .55rem .7rem; gap: .35rem; } [data-skin="odoo"] .kcard:hover { transform: none; }
+[data-skin="odoo"] .tag { border-radius: 4px; font-weight: 600; }
+/* الأزرار الثانوية بلون Odoo الفاتح */
+[data-skin="odoo"] :is(.view, .o-cp, .modal, .task-drawer, .drawer, .focus-overlay, .bulk-bar, .auth-card, .inbox-panel) .btn:not(.btn-primary):not(.btn-danger):not(.btn-ok):hover { background: var(--surface-3); }
+/* شاشة الدخول كصفحة دخول Odoo: بطاقة واحدة في المنتصف بشعار أعلى */
+.auth-logo { display: none; }
+[data-skin="odoo"] .auth { grid-template-columns: 1fr; background: var(--bg); } [data-skin="odoo"] .auth-art { display: none; }
+[data-skin="odoo"] .auth-card { max-width: 440px; width: 100%; margin: 2rem auto; border: 1px solid var(--border); padding: 2rem 2.2rem; }
+[data-skin="odoo"] .auth-logo { display: flex; align-items: center; justify-content: center; gap: .5rem; font-size: 1.25rem; font-weight: 700; color: var(--brand); margin-bottom: 1.2rem; } [data-skin="odoo"] .auth-logo .app-icon { background: var(--brand); color: #fff; width: 34px; height: 34px; border-radius: 8px; } [data-skin="odoo"] .auth-logo .app-icon .ic { width: 20px; height: 20px; }
+[data-skin="odoo"] .auth-card h1 { font-size: 1.15rem; text-align: center; } [data-skin="odoo"] .auth-card .muted { text-align: center; }
+/* الجداول والقوائم */
+[data-skin="odoo"] .table { font-size: .88rem; } [data-skin="odoo"] .table th { border-bottom: 2px solid var(--border); }
+[data-skin="odoo"] .kpi-label { font-weight: 500; } [data-skin="odoo"] .grp-title { font-weight: 600; }
+/* محادثة Odoo: أزرار الإرسال والملاحظة */
+[data-skin="odoo"] .ch-form { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: .6rem; } [data-skin="odoo"] .ch-form textarea { border: none; background: transparent; }
+[data-skin="odoo"] .ch-head h3 { font-size: .95rem; font-weight: 600; }
+[data-skin="odoo"] .tp-head { padding-top: .6rem; } [data-skin="odoo"] .tp-top .goal-tag { font-weight: 500; }
+[data-skin="odoo"] .drawer-head { background: var(--surface); }
+[data-skin="odoo"] .chat-fab { background: var(--primary); }

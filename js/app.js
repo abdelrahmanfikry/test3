@@ -173,6 +173,8 @@ function showApp(user) {
     const name = (state.profile && state.profile.displayName) || user.displayName || (user.email || '').split('@')[0];
     $('userName').textContent = name;
     $('userEmail').textContent = user.email || '';
+    $('userMenuName').textContent = name; $('userMenuName2').textContent = name; $('userMenuEmail').textContent = user.email || '';
+    $('userAvatar').textContent = (name || '?').trim().slice(0, 1).toUpperCase();
     $('userRole').textContent = state.isAdmin ? 'مشرف' : 'مستخدم';
     $('demoBar').hidden = !isDemo();
     handleShareTarget();
@@ -226,7 +228,11 @@ function setupServiceWorker() {
 function bind() {
   window.addEventListener('hashchange', route);
   $('menuBtn').onclick = () => $('sidebar').classList.toggle('open');
-  $('moreMenuBtn').onclick = (e) => { e.stopPropagation(); const m = $('moreMenu'); m.hidden = !m.hidden; };
+  $('moreMenuBtn').onclick = (e) => { e.stopPropagation(); const m = $('moreMenu'); m.hidden = !m.hidden; $('userMenu').hidden = true; };
+  $('userMenuBtn').onclick = (e) => { e.stopPropagation(); const m = $('userMenu'); m.hidden = !m.hidden; $('moreMenu').hidden = true; };
+  $('userMenu').querySelectorAll('a').forEach(a => { a.onclick = () => { $('userMenu').hidden = true; }; });
+  $('userShortcuts').onclick = () => { $('userMenu').hidden = true; openModal('shortcutsModal'); };
+  $('userSignOut').onclick = () => { $('userMenu').hidden = true; api.signOut(); };
   $('sidebar').addEventListener('click', (e) => { if (e.target.closest('a')) $('sidebar').classList.remove('open'); });
   $('sidebarBg').onclick = () => $('sidebar').classList.remove('open');
   $('themeBtn').onclick = () => { const cur = document.documentElement.getAttribute('data-theme'); setPref('theme', cur === 'dark' ? 'light' : 'dark'); };
