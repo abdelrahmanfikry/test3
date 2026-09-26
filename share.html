@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>مشروع مشترك — سجل أهدافي</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css"><link rel="stylesheet" href="css/project.css"><link rel="stylesheet" href="css/extras.css">
+  <style>
+    body { padding: 1rem; } .share-wrap { max-width: 1100px; margin: 0 auto; }
+    .share-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: 1rem; font-size: .85rem; color: var(--text-3); }
+    .share-bar .brand { color: var(--primary); font-weight: 800; text-decoration: none; display: inline-flex; gap: .3rem; align-items: center; }
+    .ro-kanban { display: flex; gap: .7rem; overflow-x: auto; padding-bottom: .5rem; } .ro-col { flex: 0 0 260px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--rs); padding: .5rem; }
+    .ro-col h3 { display: flex; align-items: center; gap: .4rem; font-size: .9rem; } .ro-col h3 i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; } .ro-col h3 small { color: var(--text-3); margin-inline-start: auto; }
+    .ro-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .5rem .6rem; margin-bottom: .4rem; font-size: .85rem; } .ro-card .meta { display: flex; gap: .5rem; flex-wrap: wrap; font-size: .72rem; color: var(--text-3); margin-top: .2rem; }
+    .ro-card.done { opacity: .6; } .ro-card.done strong { text-decoration: line-through; }
+  </style>
+  <script>(function(){try{var p=JSON.parse(localStorage.getItem('goals.prefs')||'{}');var th=p.theme||'auto';if(th==='auto')th=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',th);}catch(e){}})();</script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></symbol></defs></svg>
+  <div class="share-wrap">
+    <div class="share-bar"><a class="brand" href="./"><svg class="ic"><use href="#i-target"/></svg> سجل أهدافي</a><span>· عرض للقراءة فقط</span><span id="shareInfo"></span></div>
+    <div id="shareBody"><div class="sk-kpis"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div><div class="sk-rows"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>
+  </div>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script type="module" src="js/share-page.js"></script>
+</body>
+</html>

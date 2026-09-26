@@ -7,6 +7,14 @@ import { ensureSortable, ensureChart } from './lib.js';
 import { bulk, toggleBulk, bulkCheckbox, bindBulk, snoozeMenu, deleteTaskWithUndo, deleteGoalWithUndo } from './bulk.js';
 import { exportJSON, importJSON, exportICS, exportProject, duplicateProject } from './backup.js';
 import { openFocus, sessionsToday } from './focus.js';
+import { workload, rebalanceSuggestions, projectCost, pivot } from './analytics.js';
+import { templatePicker, templatesHtml, bindTemplates } from './templates.js';
+import { voiceButton, tasksFromPhoto } from './capture.js';
+import { hasAI, aiKey, setAiKey, AI_MODEL } from './ai.js';
+import { enablePush, pushEnabled } from './notify.js';
+import { previewDigest } from './digest.js';
+import { stageAutomationPatch, wipStatus } from './model.js';
+import { applyLang } from './i18n.js';
 import { projectStages, taskStage, stagePatch, completionPatch, subtaskProgress, blockers, checklistProgress, cloneFromTemplate, DEFAULT_STAGES, DEFAULT_PERSONAL_STAGES, myActivities, activityState, ACTIVITY_TYPES, hoursSpent } from './model.js';
 import { openTask, spawnRecurrence } from './task-panel.js';
 import { renderKanban } from './kanban.js';
@@ -60,10 +68,15 @@ function heatmapHtml() {
 function weekStripHtml(openTasks) {
   return `<div class="week-strip">${Array.from({ length: 7 }, (_, i) => { const d = addDays(new Date(), i); const iso = isoDate(d); const n = openTasks.filter(t => t.dueDate === iso).length; return `<button class="week-day ${i === 0 ? 'today' : ''} ${n >= 4 ? 'busy' : ''}" data-day="${iso}"><span class="wd-name">${i === 0 ? 'اليوم' : i === 1 ? 'غداً' : d.toLocaleDateString('ar-EG', { weekday: 'short' })}</span><span class="wd-num">${d.getDate()}</span><span class="wd-count">${n ? `${n} مهمة` : '—'}</span></button>`; }).join('')}</div>`;
 }
-function workloadHtml(openTasks) {
-  const rows = state.users.map(u => { const mine = openTasks.filter(t => t.assignedToUid === u.uid || (t.assignedUserIds || []).includes(u.uid)); return { u, open: mine.length, late: mine.filter(t => taskBucket(t) === 'overdue').length }; }).filter(r => r.open).sort((a, b) => b.open - a.open).slice(0, 8);
-  const max = Math.max(1, ...rows.map(r => r.open));
-  return rows.length ? `<div class="workload">${rows.map(r => `<div class="wl-row"><span class="who">${avatar(r.u.uid, 20)} ${esc(r.u.displayName || r.u.email)}</span><div class="wl-bar"><i class="late" style="width:${(r.late / max) * 100}%"></i><i class="open" style="width:${((r.open - r.late) / max) * 100}%"></i></div><span class="hint">${r.open}${r.late ? ` · <span class="c-danger">${r.late} متأخرة</span>` : ''}</span></div>`).join('')}</div>` : '<p class="muted">لا مهام مفتوحة مكلّفة.</p>';
+/** عبء العمل الذكي: ساعات الأسبوع القادم مقابل طاقة كل عضو + اقتراح إعادة توزيع */
+function workloadHtml() {
+  const goals = visibleGoals().filter(g => !g.template); const gid = new Set(goals.map(g => g.id));
+  const rows = workload(state.users, state.tasks.filter(t => gid.has(t.goalId))).filter(r => r.tasks);
+  if (!rows.length) return '<p class="muted">لا مهام مستحقة خلال الأسبوع القادم.</p>';
+  const sug = rebalanceSuggestions(rows);
+  const LV = { over: ['مثقل', 'c-danger'], high: ['مرتفع', 'c-warn'], ok: ['مناسب', 'c-ok'], free: ['متاح', ''] };
+  return `<div class="workload">${rows.map(r => `<div class="wl-row"><span class="who">${avatar(r.uid, 20)} ${esc(r.name)}</span><div class="wl-bar" title="${r.hours} من ${r.capacity} ساعة"><i class="late" style="width:${Math.min(100, (r.late / Math.max(1, r.tasks)) * Math.min(100, r.ratio * 100))}%"></i><i class="open ${r.level}" style="width:${Math.min(100, r.ratio * 100) - Math.min(100, (r.late / Math.max(1, r.tasks)) * Math.min(100, r.ratio * 100))}%"></i></div><span class="hint"><span class="${LV[r.level][1]}">${LV[r.level][0]}</span> · ${r.hours}/${r.capacity} س · ${r.tasks} مهمة${r.late ? ` · <span class="c-danger">${r.late} متأخرة</span>` : ''}</span></div>`).join('')}</div>
+    ${sug.length ? `<div class="alert bad" style="margin-top:.6rem">⚠️ ${sug.map(s => `<strong>${esc(s.from.name)}</strong> مثقل بـ ${s.excess} ساعة فوق طاقته${s.to ? ` — اقتراح: انقل جزءاً إلى <strong>${esc(s.to.name)}</strong> (${s.to.hours}/${s.to.capacity} س)` : ''}`).join(' · ')} <button class="linkbtn" data-rebalance="${sug[0].from.uid}">افتح مهامه للتوزيع</button></div>` : ''}`;
 }
 
 // ================= لوحة التحكم =================
@@ -129,12 +142,13 @@ export function renderDashboard(el) {
       <div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-cal"/></svg> الأيام السبعة القادمة</h2><a href="#calendar" class="link">التقويم →</a></div>${weekStripHtml(myOpen)}</div>
       <div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-chart"/></svg> إنجازك خلال 12 أسبوعاً</h2><a href="#reports" class="link">التقارير →</a></div>${heatmapHtml()}</div>
     </div>
-    ${state.users.length > 1 ? `<div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-users"/></svg> عبء العمل على الفريق</h2>${state.isAdmin ? '<a href="#team" class="link">الفريق →</a>' : ''}</div>${workloadHtml(myOpen)}</div>` : ''}`;
+    ${state.users.length > 1 ? `<div class="panel"><div class="panel-head"><h2><svg class="ic"><use href="#i-users"/></svg> عبء العمل على الفريق (7 أيام)</h2>${state.isAdmin ? '<a href="#team" class="link">الفريق →</a>' : ''}</div>${workloadHtml()}</div>` : ''}`;
   bindTaskList(el);
   el.querySelector('[data-act="add-task"]').onclick = () => openTaskModal();
   el.querySelector('[data-act="add-goal"]').onclick = () => openGoalModal();
   el.querySelector('[data-act="focus"]').onclick = () => openFocus();
   el.querySelectorAll('.week-day').forEach(b => { b.onclick = () => { filters.calendarSelected = b.dataset.day; filters.calendarMonth = b.dataset.day.slice(0, 7); location.hash = 'calendar'; }; });
+  const rb = el.querySelector('[data-rebalance]'); if (rb) rb.onclick = () => { Object.assign(filters.tasks, { assignee: rb.dataset.rebalance, status: 'open', view: 'list', savedId: null }); toggleBulk(); if (!bulk.on) toggleBulk(); location.hash = 'tasks'; window.dispatchEvent(new Event('hashchange')); toast('حدّد المهام ثم «المكلّف» من الشريط السفلي لنقلها', { ms: 5000 }); };
   el.querySelectorAll('[data-open-goal]').forEach(x => { x.onclick = () => { location.hash = 'project/' + x.dataset.openGoal; }; });
   el.querySelectorAll('[data-open-task]').forEach(x => { x.onclick = () => openTask(x.dataset.openTask, 'activities'); });
 }
@@ -309,11 +323,14 @@ export function renderTasks(el) {
       </div>
     </div>
     <div class="saved-filters"><svg class="ic hint"><use href="#i-search"/></svg>${saved.map(s => `<button class="chip ${f.savedId === s.id ? 'on' : ''}" data-sf="${s.id}">${esc(s.name)}</button>`).join('')}<button class="chip" id="sfSave">＋ حفظ الفلتر الحالي</button>${f.savedId ? `<button class="chip" id="sfDel">حذف الفلتر</button>` : ''}</div>
-    <form class="quick-add" id="quickAdd"><svg class="ic"><use href="#i-plus"/></svg><input type="text" id="quickAddName" placeholder="إضافة سريعة: اكتب اسم المهمة واضغط Enter (مثال: مراجعة الفصل 3 غداً !عالي)" autocomplete="off"><select id="quickAddGoal">${goals.filter(g => !g.archived).map(g => `<option value="${g.id}" ${f.goal === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select><button type="submit" class="btn btn-primary btn-sm">إضافة</button></form>
+    <form class="quick-add" id="quickAdd"><svg class="ic"><use href="#i-plus"/></svg><input type="text" id="quickAddName" placeholder="إضافة سريعة: اكتب اسم المهمة واضغط Enter (مثال: مراجعة الفصل 3 غداً !عالي)" autocomplete="off"><span id="quickVoice"></span><button type="button" class="iconbtn" id="quickPhoto" title="مهام من صورة (ذكاء اصطناعي)"><svg class="ic"><use href="#i-camera"/></svg></button><button type="button" class="iconbtn" id="quickTpl" title="من قالب مهمة"><svg class="ic"><use href="#i-copy"/></svg></button><select id="quickAddGoal">${goals.filter(g => !g.archived).map(g => `<option value="${g.id}" ${f.goal === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select><button type="submit" class="btn btn-primary btn-sm">إضافة</button></form>
     <div id="tasksBody">${f.view === 'list' ? renderTaskGroups(list, f.group) : ''}</div>`;
   if (f.view === 'kanban') renderTasksKanban($('tasksBody'), list, goals);
   if (f.view === 'my') renderMyKanban($('tasksBody'), list);
-  if (f.view === 'gantt') renderGantt($('tasksBody'), list, { onOpen: openTask, onChange: (id, p) => api.updateTask(id, p).then(() => toast('تم تحديث التواريخ', { type: 'ok' })) });
+  if (f.view === 'gantt') renderGantt($('tasksBody'), list, { onOpen: openTask, onChange: (id, p, shifts) => applyGanttChange(id, p, shifts) });
+  $('quickVoice').appendChild(voiceButton($('quickAddName'), { onResult: () => $('quickAdd').requestSubmit() }));
+  $('quickPhoto').onclick = () => tasksFromPhoto({ goalId: $('quickAddGoal').value || null });
+  $('quickTpl').onclick = (e) => templatePicker(e.currentTarget, $('quickAddGoal').value, (id) => openTask(id));
   el.querySelectorAll('[data-tview]').forEach(b => { b.onclick = () => { f.view = b.dataset.tview; renderTasks(el); }; });
   el.querySelectorAll('[data-status]').forEach(b => { b.onclick = () => { f.status = b.dataset.status; renderTasks(el); }; });
   const tt = $('tasksTag'); if (tt) tt.onchange = (e) => { f.tag = e.target.value; renderTasks(el); };
@@ -340,6 +357,25 @@ export function renderTasks(el) {
     toast('تمت إضافة المهمة', { type: 'ok' });
   };
   bindTaskList(el);
+}
+
+/** تغيير تواريخ من الجانت مع عرض إزاحة المهام التابعة */
+export async function applyGanttChange(id, p, shifts) {
+  await api.updateTask(id, p);
+  if (shifts && shifts.length && await confirmDialog(`تأخرت هذه المهمة، و${shifts.length} مهمة تعتمد عليها تبدأ قبل انتهائها. إزاحتها تلقائياً بنفس الفارق؟`, { danger: false, okLabel: 'إزاحة التابعة', title: 'اعتماديات' })) {
+    for (const s of shifts) { const { id: sid, ...dates } = s; await api.updateTask(sid, dates); }
+    toast(`تم تحديث التواريخ وإزاحة ${shifts.length} مهمة تابعة`, { type: 'ok' });
+  } else toast('تم تحديث التواريخ', { type: 'ok' });
+}
+
+/** نقل مهمة إلى مرحلة مع الأتمتة وحد WIP (مشترك بين الكانبان وبطاقة المهمة) */
+export function stageMovePatch(t, g, s) {
+  const p = { ...stagePatch(s), ...stageAutomationPatch(s, t) };
+  if (s.done && !t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp();
+  const w = wipStatus(s, g, state.tasks.filter(x => x.id !== t.id));
+  if (w.full) toast(`⚠️ مرحلة «${s.name}» وصلت حدّها (${w.count + 1}/${w.limit})`, { type: 'err', ms: 4000 });
+  if (p.assignedUserIds) toast(`تكليف تلقائي: ${userLabel(s.autoAssign)}`, { ms: 2500 });
+  return p;
 }
 
 /** "اسم المهمة غداً !عالي" → { name, dueDate, priority } */
@@ -370,7 +406,7 @@ function renderTasksKanban(container, list, goals) {
       const t = state.tasks.find(x => x.id === taskId); const g = goalById(t.goalId);
       const s = single ? projectStages(g).find(x => x.id === colId) : projectStages(g).find(x => 'n:' + x.name === colId);
       if (!s) { toast(`المشروع «${g.name}» ليس فيه مرحلة بهذا الاسم`, { type: 'err' }); renderTasks(document.getElementById('view')); return; }
-      const p = stagePatch(s); if (s.done && !t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp();
+      const p = stageMovePatch(t, g, s);
       await api.updateTask(taskId, p); api.reorderTasks(ids).catch(() => {});
       if (s.done && t.recurrence && t.recurrence.freq && !t.completed) spawnRecurrence(t);
     },
@@ -580,6 +616,9 @@ export function renderReports(el) {
   const hours30 = Math.round(sheets.reduce((a, x) => a + (Number(x.hours) || 0), 0) * 10) / 10;
   const byMemberProject = [...groupBy(sheets, x => `${x.uid}|${x.task.goalId}`).entries()].map(([k, xs]) => { const [u, gid] = k.split('|'); return { u, gid, h: Math.round(xs.reduce((a, x) => a + (Number(x.hours) || 0), 0) * 10) / 10 }; }).sort((a, b) => b.h - a.h).slice(0, 12);
   const perProject = goals.filter(g => !g.template).map(g => { const ts = goalTasks(g.id); const open = ts.filter(t => !t.completed); return { g, total: ts.length, open: open.length, done: ts.length - open.length, late: open.filter(t => taskBucket(t) === 'overdue').length, hours: Math.round(ts.reduce((a, t) => a + (t.timesheets || []).reduce((b, x) => b + (Number(x.hours) || 0), 0), 0) * 10) / 10, pct: goalProgress(g) }; }).sort((a, b) => b.open - a.open);
+  const costs = goals.filter(g => !g.template).map(g => ({ g, c: projectCost(g, state.tasks, state.users) })).filter(x => x.c.hours || x.c.budget);
+  const totalCost = costs.reduce((a, x) => a + x.c.cost, 0);
+  const pv = pivot(goals.filter(g => !g.template), state.users, state.tasks, filters.pivotMeasure || 'open');
   el.innerHTML = `
     <div class="toolbar"><h2><svg class="ic"><use href="#i-chart"/></svg> التقارير</h2><div class="toolbar-right"><button class="btn" id="repCsv"><svg class="ic"><use href="#i-download"/></svg> تصدير CSV</button><button class="btn" id="repPrint"><svg class="ic"><use href="#i-print"/></svg> طباعة</button></div></div>
     <div class="kpis">
@@ -604,7 +643,13 @@ export function renderReports(el) {
     <div class="grid-2">
       <div class="panel"><h2>حسب المشروع</h2>${perProject.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>المشروع</th><th>مفتوحة</th><th>منجزة</th><th>متأخرة</th><th>ساعات</th><th>التقدّم</th></tr></thead><tbody>${perProject.map(r => `<tr><td><a href="#project/${r.g.id}" class="goal-tag" style="--gc:${r.g.color || '#2563eb'}">${esc(r.g.name)}</a></td><td>${r.open}</td><td class="c-ok">${r.done}</td><td class="${r.late ? 'c-danger' : ''}">${r.late}</td><td>${r.hours || '—'}</td><td><div class="progress sm"><div class="progress-bar" style="width:${r.pct}%;background:${r.g.color || 'var(--primary)'}"></div></div></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا مشاريع.</p>'}</div>
       <div class="panel"><h2>الساعات المسجّلة خلال 30 يوماً</h2>${byMemberProject.length ? `<table class="table"><thead><tr><th>العضو</th><th>المشروع</th><th>الساعات</th></tr></thead><tbody>${byMemberProject.map(r => `<tr><td>${avatar(r.u, 22)} ${esc(userLabel(r.u))}</td><td>${esc(goalById(r.gid)?.name || '—')}</td><td><strong>${r.h}</strong></td></tr>`).join('')}</tbody></table>` : '<p class="muted">لا ساعات مسجّلة. سجّل الوقت من بطاقة المهمة أو عبر وضع التركيز 🍅.</p>'}</div>
+    </div>
+    <div class="grid-2">
+      <div class="panel"><h2>التكلفة مقابل الميزانية</h2>${costs.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>المشروع</th><th>ساعات</th><th>التكلفة</th><th>الميزانية</th><th>الاستهلاك</th></tr></thead><tbody>${costs.map(({ g, c }) => `<tr><td><a href="#project/${g.id}" class="goal-tag" style="--gc:${g.color || '#2563eb'}">${esc(g.name)}</a></td><td>${c.hours}</td><td><strong>${c.cost.toLocaleString('ar-EG')}</strong></td><td>${c.budget ? c.budget.toLocaleString('ar-EG') : '—'}</td><td>${c.pct != null ? `<div class="progress sm"><div class="progress-bar" style="width:${Math.min(100, c.pct)}%;background:${c.over ? 'var(--danger)' : c.pct > 80 ? 'var(--warning)' : 'var(--success)'}"></div></div><small class="${c.over ? 'c-danger' : ''}">${c.pct}%</small>` : '—'}</td></tr>`).join('')}<tr><td><strong>الإجمالي</strong></td><td></td><td><strong>${totalCost.toLocaleString('ar-EG')}</strong></td><td colspan="2"></td></tr></tbody></table></div><p class="hint">التكلفة = الساعات المسجّلة × سعر ساعة العضو (يضبطه المشرف في صفحة الفريق). الميزانية من إعدادات المشروع.</p>` : '<p class="muted">حدّد سعر الساعة للأعضاء (الفريق) وميزانية المشروع (إعدادات المشروع) لتظهر التكلفة.</p>'}</div>
+      <div class="panel"><div class="panel-head"><h2>جدول محوري: مشروع × عضو</h2><select id="pivotMeasure">${[['open', 'مفتوحة'], ['done', 'منجزة'], ['late', 'متأخرة'], ['tasks', 'كل المهام'], ['hours', 'ساعات']].map(([k, v]) => `<option value="${k}" ${(filters.pivotMeasure || 'open') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        ${pv.rows.length ? `<div class="table-wrap"><table class="table pivot"><thead><tr><th>المشروع</th>${pv.cols.map(u => `<th title="${esc(u.email || '')}">${esc((u.displayName || u.email || '').split(' ')[0])}</th>`).join('')}<th>الإجمالي</th></tr></thead><tbody>${pv.rows.map(r => `<tr><td><span class="goal-tag" style="--gc:${r.goal.color || '#2563eb'}">${esc(r.goal.name)}</span></td>${r.cells.map(c => `<td class="${c ? '' : 'hint'}">${c || '·'}</td>`).join('')}<td><strong>${r.total}</strong></td></tr>`).join('')}<tr><td><strong>الإجمالي</strong></td>${pv.totals.map(c => `<td><strong>${c}</strong></td>`).join('')}<td><strong>${pv.grand}</strong></td></tr></tbody></table></div>` : '<p class="muted">لا بيانات.</p>'}</div>
     </div>`;
+  $('pivotMeasure').onchange = (e) => { filters.pivotMeasure = e.target.value; renderReports(el); };
   $('repCsv').onclick = exportCSV;
   $('repPrint').onclick = () => window.print();
   ensureChart().then(() => { if ($('chWeeks')) drawReportCharts({ labels, doneW, createdW, byCat }); }).catch(() => {});
@@ -638,22 +683,27 @@ export function renderTeam(el) {
   // نرسم فوراً من البيانات الحالية، ونحدّث البروفايلات بالخلفية (يُعاد الرسم فقط إذا تغيّر شيء)
   if (Date.now() - usersLoadedAt > 60000) { usersLoadedAt = Date.now(); api.loadUsers().catch(() => {}); }
   if (!state.users.length) { el.innerHTML = `<div class="sk-rows"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`; return; }
-  const rows = state.users.map(u => ({ ...u, ...memberStats(u) }));
+  const wl = workload(state.users, state.tasks.filter(t => visibleGoals().some(g => g.id === t.goalId)));
+  const rows = state.users.map(u => ({ ...u, ...memberStats(u), wl: wl.find(w => w.uid === u.uid) }));
   const online = rows.filter(r => r.online).length;
   const link = `${location.origin}${location.pathname}`;
   el.innerHTML = `
     <div class="toolbar"><h2><svg class="ic"><use href="#i-users"/></svg> الفريق <small class="hint">${rows.length} عضو · <span class="c-ok">${online} متصل</span></small></h2>
       <div class="toolbar-right"><div class="search"><svg class="ic"><use href="#i-search"/></svg><input type="search" id="teamQ" placeholder="ابحث بالبريد أو الاسم…"></div><button class="btn" id="teamInvite"><svg class="ic"><use href="#i-send"/></svg> دعوة عضو</button></div></div>
-    <div class="panel"><div class="table-wrap"><table class="table" id="teamTable"><thead><tr><th>العضو</th><th>الدور</th><th>المشاريع</th><th>مفتوحة</th><th>متأخرة</th><th>منجزة</th><th>ساعات الأسبوع</th><th>آخر ظهور</th><th></th></tr></thead><tbody>${rows.map(u => `<tr data-uid="${u.uid}" data-q="${esc((u.email || '') + ' ' + (u.displayName || '')).toLowerCase()}">
+    <div class="panel"><div class="table-wrap"><table class="table" id="teamTable"><thead><tr><th>العضو</th><th>الدور</th><th>المشاريع</th><th>مفتوحة</th><th>متأخرة</th><th>منجزة</th><th>ساعات الأسبوع</th><th>سعر الساعة</th><th>الطاقة/أسبوع</th><th>آخر ظهور</th><th></th></tr></thead><tbody>${rows.map(u => `<tr data-uid="${u.uid}" data-q="${esc((u.email || '') + ' ' + (u.displayName || '')).toLowerCase()}">
       <td><div class="who"><span class="online-dot ${u.online ? 'on' : ''}" title="${u.online ? 'متصل الآن' : 'غير متصل'}"></span>${avatar(u.uid, 30)}<div><button class="linkbtn" data-member="${u.uid}"><strong>${esc(u.displayName || u.email)}</strong></button><div class="hint">${esc(u.email || '')}</div></div></div></td>
       <td><span class="badge ${u.role === 'admin' ? 'st-done' : 'cat'}">${u.role === 'admin' ? 'مشرف' : 'مستخدم'}</span></td>
-      <td>${u.goals}</td><td>${u.open}</td><td class="${u.late ? 'c-danger' : ''}">${u.late}</td><td class="c-ok">${u.done}</td><td>${u.hours || '—'}</td><td class="hint">${u.seen ? fmtDateTime(u.lastSeen) : '—'}</td>
+      <td>${u.goals}</td><td>${u.open}${u.wl && u.wl.level === 'over' ? ' <span class="badge st-late" title="مثقل: ' + u.wl.hours + '/' + u.wl.capacity + ' ساعة هذا الأسبوع">مثقل</span>' : u.wl && u.wl.level === 'high' ? ' <span class="badge cat c-warn">مرتفع</span>' : ''}</td><td class="${u.late ? 'c-danger' : ''}">${u.late}</td><td class="c-ok">${u.done}</td><td>${u.hours || '—'}</td>
+      <td><input type="number" class="cell-input" data-rate="${u.uid}" value="${u.hourlyRate || ''}" placeholder="0" min="0" title="سعر الساعة"></td><td><input type="number" class="cell-input" data-cap="${u.uid}" value="${u.weeklyCapacity || ''}" placeholder="40" min="1" title="الطاقة الأسبوعية (ساعات)"></td>
+      <td class="hint">${u.seen ? fmtDateTime(u.lastSeen) : '—'}</td>
       <td><div class="btn-row" style="margin:0"><button class="btn btn-sm" data-member="${u.uid}">التفاصيل</button>${u.uid !== state.user.uid ? `<button class="btn btn-sm" data-role="${u.role === 'admin' ? 'user' : 'admin'}">${u.role === 'admin' ? 'إزالة الإشراف' : 'ترقية لمشرف'}</button>` : '<span class="hint">أنت</span>'}</div></td>
     </tr>`).join('')}</tbody></table></div></div>`;
   $('teamQ').oninput = (e) => { const q = e.target.value.toLowerCase(); el.querySelectorAll('tbody tr').forEach(tr => { tr.hidden = !tr.dataset.q.includes(q); }); };
   $('teamInvite').onclick = async () => { const email = await promptDialog('بريد العضو الجديد', '', { type: 'email', placeholder: 'name@email.com' }); if (!email) return; const subject = encodeURIComponent('دعوة للانضمام إلى سجل أهدافي'); const body = encodeURIComponent(`مرحباً،\n\nأدعوك للانضمام إلى فريقنا على «سجل أهدافي» لإدارة المشاريع والمهام.\nسجّل حسابك من هنا: ${link}\n\nبعد التسجيل سأضيفك إلى المشاريع.`); window.open(`mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`); copyText(link, 'فتحنا بريدك بالدعوة ونسخنا الرابط'); };
   el.querySelectorAll('[data-role]').forEach(b => { b.onclick = async () => { const uid = b.closest('tr').dataset.uid; if (await confirmDialog(`تغيير دور هذا المستخدم إلى ${b.dataset.role === 'admin' ? 'مشرف' : 'مستخدم'}؟`, { danger: false, okLabel: 'تغيير' })) { await api.setRole(uid, b.dataset.role); toast('تم تحديث الدور', { type: 'ok' }); usersLoadedAt = 0; renderTeam(el); } }; });
   el.querySelectorAll('[data-member]').forEach(b => { b.onclick = () => openMember(b.dataset.member); });
+  el.querySelectorAll('[data-rate]').forEach(i => { i.onchange = async () => { await api.updateUserProfile(i.dataset.rate, { hourlyRate: Number(i.value) || 0 }); toast('تم حفظ سعر الساعة', { type: 'ok' }); }; });
+  el.querySelectorAll('[data-cap]').forEach(i => { i.onchange = async () => { await api.updateUserProfile(i.dataset.cap, { weeklyCapacity: Number(i.value) || 40 }); toast('تم حفظ الطاقة الأسبوعية', { type: 'ok' }); }; });
 }
 
 /** بطاقة العضو: إحصائياته ومهامه المفتوحة حسب المشروع + تكليف سريع */
@@ -711,8 +761,20 @@ export function renderSettings(el) {
             <label class="field"><span>الصفحة الافتتاحية</span><select id="setHome">${[['dashboard', 'لوحة التحكم'], ['tasks', 'المهام'], ['goals', 'المشاريع'], ['calendar', 'التقويم']].map(([k, v]) => `<option value="${k}" ${(p.home || 'dashboard') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
             <label class="field"><span>جلسة التركيز / الاستراحة (دقائق)</span><div class="grid-f"><input type="number" id="setFocus" min="5" max="120" value="${p.focusMin || 25}"><input type="number" id="setBreak" min="1" max="60" value="${p.breakMin || 5}"></div></label>
           </div>
+          <label class="field"><span>اللغة / Language</span><select id="setLang"><option value="ar" ${p.lang !== 'en' ? 'selected' : ''}>العربية</option><option value="en" ${p.lang === 'en' ? 'selected' : ''}>English (القوائم والعناوين الرئيسية)</option></select></label>
           <label class="switch"><input type="checkbox" id="setNotify" ${p.notify ? 'checked' : ''}><span>تنبيهات المتصفح للمهام المستحقة اليوم والمتأخرة</span></label>
           <label class="switch"><input type="checkbox" id="setCompact" ${p.compact ? 'checked' : ''}><span>عرض مكثّف (صفوف أقصر)</span></label>
+        </div>
+        <div class="panel"><h2>الإشعارات</h2>
+          <p class="hint">إشعارات التكليف والتعليقات والإنجاز تصل إلى كل أجهزتك من داخل التطبيق. لإشعارات المتصفح (والتطبيق مغلق عند نشر Cloud Functions) فعّل الإذن.</p>
+          <div class="btn-row"><button class="btn btn-sm ${pushEnabled() ? 'btn-ok' : 'btn-primary'}" id="setPush">${pushEnabled() ? '✓ إشعارات المتصفح مفعّلة' : 'تفعيل إشعارات المتصفح'}</button></div>
+          <label class="switch" style="margin-top:.6rem"><input type="checkbox" id="setDigest" ${p.weeklyDigest ? 'checked' : ''}><span>ملخص أسبوعي بالبريد (يُرسل تلقائياً مرة كل أسبوع عند فتح التطبيق)</span></label>
+          <div class="btn-row"><button class="btn btn-sm" id="setDigestPreview"><svg class="ic"><use href="#i-send"/></svg> معاينة الملخص وإرساله الآن</button></div>
+        </div>
+        <div class="panel"><h2>المساعد الذكي (Claude)</h2>
+          <p class="hint">أضف مفتاح Claude API ليجيب المساعد عن أي سؤال حول بياناتك ويُنشئ مهامًا من نص حر أو من صورة. يُحفظ المفتاح على هذا الجهاز فقط ولا يُرسل إلى أي مكان سوى Anthropic. النموذج: <code>${AI_MODEL}</code>.</p>
+          <div class="search"><input type="password" id="setAiKey" placeholder="sk-ant-…" value="${esc(aiKey())}" autocomplete="off"></div>
+          <div class="btn-row"><button class="btn btn-primary btn-sm" id="setAiSave">حفظ المفتاح</button>${hasAI() ? '<button class="btn btn-sm btn-danger" id="setAiClear">إزالة</button><span class="hint c-ok">✓ مفعّل</span>' : '<a class="hint" href="https://console.anthropic.com/" target="_blank" rel="noopener">الحصول على مفتاح ↗</a>'}</div>
         </div>
       </div>
       <div class="stack">
@@ -728,8 +790,10 @@ export function renderSettings(el) {
             <a class="btn btn-sm" href="#trash"><svg class="ic"><use href="#i-trash"/></svg> سلة المحذوفات <small>${(state.trash.goals || []).length + (state.trash.tasks || []).length}</small></a>
             ${isDemo() ? `<button class="btn btn-danger btn-sm" id="setDemoReset">إعادة تعيين البيانات التجريبية</button>` : ''}</div>
           <p class="hint" style="margin-top:.6rem">النسخة الاحتياطية تشمل المشاريع والمهام بكل تفاصيلها، ويمكن استيرادها في أي حساب كعناصر جديدة.</p>
+          ${!isDemo() ? `<label class="switch"><input type="checkbox" id="setAutoBackup" ${p.autoBackup ? 'checked' : ''}><span>نسخة احتياطية تلقائية أسبوعياً إلى Firebase Storage</span></label><div id="backupList" class="hint"></div>` : ''}
           ${isDemo() ? `<p class="warn">أنت في الوضع التجريبي: البيانات على هذا الجهاز فقط. سجّل الخروج للعودة لشاشة الدخول.</p>` : ''}</div>
-        <div class="panel"><h2>عن التطبيق</h2><p class="muted">سجل أهدافي — الإصدار 4.0. مشاريع على طريقة Odoo، مهام، فريق، تقويم، تقارير، إشعارات، وضع تركيز، وسلة محذوفات. يعمل بدون إنترنت ويُثبَّت كتطبيق.</p>
+        ${templatesHtml()}
+        <div class="panel"><h2>عن التطبيق</h2><p class="muted">سجل أهدافي — الإصدار 5.0. مشاريع على طريقة Odoo، مهام، فريق، تقويم، تقارير، إشعارات عبر الأجهزة، حضور مباشر، مشاركة برابط، مساعد ذكي، وضع تركيز، وسلة محذوفات. يعمل بدون إنترنت ويُثبَّت كتطبيق.</p>
           <div class="btn-row"><button class="btn btn-sm" id="setWhatsNew">ما الجديد</button><button class="btn btn-sm" id="setUpdate"><svg class="ic"><use href="#i-history"/></svg> تحديث التطبيق</button><button class="btn btn-danger btn-sm" id="setSignOut"><svg class="ic"><use href="#i-logout"/></svg> تسجيل الخروج</button></div></div>
       </div>
     </div>`;
@@ -740,6 +804,14 @@ export function renderSettings(el) {
   $('setFocus').onchange = (e) => setPref('focusMin', Math.max(5, Math.min(120, Number(e.target.value) || 25)));
   $('setBreak').onchange = (e) => setPref('breakMin', Math.max(1, Math.min(60, Number(e.target.value) || 5)));
   $('setImport').onchange = (e) => { const f = e.target.files[0]; if (f) importJSON(f); e.target.value = ''; };
+  $('setLang').onchange = (e) => { setPref('lang', e.target.value); applyLang(); renderSettings(el); toast(e.target.value === 'en' ? 'English mode: menus and main titles are translated; detailed texts stay in Arabic for now.' : 'تم التبديل إلى العربية', { ms: 5000 }); };
+  $('setPush').onclick = async () => { if (await enablePush()) renderSettings(el); };
+  $('setDigest').onchange = (e) => setPref('weeklyDigest', e.target.checked);
+  $('setDigestPreview').onclick = previewDigest;
+  $('setAiSave').onclick = () => { setAiKey($('setAiKey').value.trim()); toast(hasAI() ? 'تم حفظ المفتاح — المساعد الذكي مفعّل' : 'أُزيل المفتاح', { type: 'ok' }); renderSettings(el); };
+  const ac = $('setAiClear'); if (ac) ac.onclick = () => { setAiKey(''); renderSettings(el); };
+  const ab = $('setAutoBackup'); if (ab) { ab.onchange = (e) => { setPref('autoBackup', e.target.checked); if (e.target.checked) import('./backup.js').then(m => m.autoBackup(true)); }; api.listBackups().then(list => { const el2 = $('backupList'); if (el2 && list.length) el2.innerHTML = `آخر النسخ: ${list.slice(-5).reverse().map(b => `<a href="${esc(b.url)}" target="_blank" rel="noopener">${esc(b.name)}</a>`).join(' · ')}`; }).catch(() => {}); }
+  bindTemplates(el, () => renderSettings(el));
   $('setIcs').onclick = () => exportICS(state.tasks, 'goals');
   $('setWhatsNew').onclick = () => openModal('whatsNewModal');
   $('setUpdate').onclick = async () => { try { if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); for (const r of regs) await r.unregister(); } if (window.caches) { const keys = await caches.keys(); for (const k of keys) await caches.delete(k); } } catch { /* ignore */ } toast('جارٍ إعادة التحميل بأحدث إصدار…'); setTimeout(() => location.reload(), 600); };

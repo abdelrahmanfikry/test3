@@ -88,7 +88,15 @@ test3/
 | `activity/{id}` | سجل النشاط (+ نسخة تحت كل هدف/مهمة) |
 | `mail/{id}` | رسائل لإضافة **Trigger Email** (اختيارية) |
 
-انشر [firestore.rules](firestore.rules) من Firebase Console (قراءة المهام متاحة لأي مستخدم مسجّل لأن استعلامات المجموعة لا يمكن تقييدها بصلاحيات الهدف؛ الواجهة تعرض فقط مهام المشاريع المرئية). لتفعيل الدخول بجوجل: Authentication → Sign-in method → Google.
+انشر [firestore.rules](firestore.rules) و[storage.rules](storage.rules) من Firebase Console (الإصدار 5 يضيف مجموعات notifications و presence و taskTemplates و shares) (قراءة المهام متاحة لأي مستخدم مسجّل لأن استعلامات المجموعة لا يمكن تقييدها بصلاحيات الهدف؛ الواجهة تعرض فقط مهام المشاريع المرئية). لتفعيل الدخول بجوجل: Authentication → Sign-in method → Google.
+
+## الاختبارات
+
+```bash
+npm test
+```
+
+تعمل تلقائياً قبل كل `git push` بعد: `git config core.hooksPath .githooks`
 
 ## التشغيل محلياً
 

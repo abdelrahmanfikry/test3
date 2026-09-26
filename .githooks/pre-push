@@ -1,0 +1,4 @@
+#!/bin/sh
+# يشغّل الاختبارات قبل كل رفع؛ فعّله بـ: git config core.hooksPath .githooks
+echo "▶ running tests before push…"
+npm test --silent || { echo "✖ tests failed — push aborted"; exit 1; }

@@ -67,7 +67,7 @@ export function nextOccurrence(rec, fromIso) {
   if (rec.freq === 'daily') d.setDate(d.getDate() + n);
   else if (rec.freq === 'weekly') d.setDate(d.getDate() + 7 * n);
   else if (rec.freq === 'biweekly') d.setDate(d.getDate() + 14 * n);
-  else if (rec.freq === 'monthly') d.setMonth(d.getMonth() + n);
+  else if (rec.freq === 'monthly') { const day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); } // لا يتجاوز نهاية الشهر (31 يناير → 28 فبراير)
   const iso = isoDate(d);
   if (rec.until && iso > rec.until) return null;
   return iso;
@@ -143,4 +143,21 @@ export function cloneFromTemplate(tpl, tasks, overrides) {
     dueDate: t.dueDate ? isoDate(addDays(t.dueDate, shift)) : null, startDate: t.startDate ? isoDate(addDays(t.startDate, shift)) : null, order: t.order || 0,
   }));
   return { goal, tasks: newTasks };
+}
+
+/** أتمتة المرحلة: تكليف تلقائي عند الانتقال إليها (لا يزيل المكلّفين الحاليين) */
+export function stageAutomationPatch(stage, task) {
+  const p = {};
+  if (stage && stage.autoAssign) {
+    const cur = task.assignedUserIds && task.assignedUserIds.length ? task.assignedUserIds : (task.assignedToUid ? [task.assignedToUid] : []);
+    if (!cur.includes(stage.autoAssign)) { p.assignedUserIds = [...cur, stage.autoAssign]; p.assignedToUid = task.assignedToUid || stage.autoAssign; }
+  }
+  return p;
+}
+
+/** حالة حد المهام (WIP) لمرحلة: العدد الحالي مقابل الحد */
+export function wipStatus(stage, project, tasks) {
+  const limit = Number(stage && stage.limit) || 0;
+  const count = tasks.filter(t => t.goalId === project.id && !t.parentId && taskStage(t, project).id === stage.id).length;
+  return { count, limit, exceeded: !!limit && count > limit, full: !!limit && count >= limit };
 }

@@ -1,0 +1,11 @@
+{
+  "name": "goals-app",
+  "private": true,
+  "version": "5.0.0",
+  "type": "module",
+  "description": "سجل أهدافي — إدارة مشاريع ومهام للفريق (PWA + Firebase)",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "serve": "python -m http.server 8092"
+  }
+}

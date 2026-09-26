@@ -85,3 +85,15 @@ export function exportICS(tasks, name = 'goals') {
   lines.push('END:VCALENDAR');
   download(`${name}-${isoDate()}.ics`, lines.join('\r\n'), 'text/calendar;charset=utf-8');
 }
+
+const AUTO_KEY = 'goals.autoBackupWeek';
+function weekKey() { const d = new Date(); return `${d.getFullYear()}-${Math.ceil((((d - new Date(d.getFullYear(), 0, 1)) / 86400000) + new Date(d.getFullYear(), 0, 1).getDay() + 1) / 7)}`; }
+/** نسخة احتياطية تلقائية أسبوعية إلى Firebase Storage (backups/{uid}/{date}.json) */
+export async function autoBackup(force = false) {
+  if (!state.prefs.autoBackup || !state.user || !state.goals.length) return;
+  try { if (!force && localStorage.getItem(AUTO_KEY) === weekKey()) return; } catch { return; }
+  const p = state.profile || {};
+  const json = JSON.stringify({ app: 'goals', version: 5, exportedAt: new Date().toISOString(), goals: plain(state.goals), tasks: plain(state.tasks), profile: { displayName: p.displayName || '', savedFilters: p.savedFilters || [], personalStages: p.personalStages || null, favorites: p.favorites || [] } });
+  try { await api.uploadBackup(json, `backup-${isoDate()}.json`); localStorage.setItem(AUTO_KEY, weekKey()); toast('تم حفظ نسخة احتياطية تلقائية ☁️', { type: 'ok', ms: 2500 }); }
+  catch (e) { if (force) toast(e.message === 'storage-unavailable' ? 'فعّل Firebase Storage أولاً' : 'تعذّر رفع النسخة', { type: 'err' }); }
+}

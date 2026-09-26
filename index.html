@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/project.css">
   <link rel="stylesheet" href="css/extras.css">
-  <link rel="modulepreload" href="js/app.js"><link rel="modulepreload" href="js/store.js"><link rel="modulepreload" href="js/data.js"><link rel="modulepreload" href="js/views.js"><link rel="modulepreload" href="js/ui.js"><link rel="modulepreload" href="js/utils.js"><link rel="modulepreload" href="js/model.js"><link rel="modulepreload" href="js/task-panel.js"><link rel="modulepreload" href="js/project-page.js"><link rel="modulepreload" href="js/kanban.js"><link rel="modulepreload" href="js/gantt.js"><link rel="modulepreload" href="js/activities.js"><link rel="modulepreload" href="js/chatbot.js"><link rel="modulepreload" href="js/lib.js"><link rel="modulepreload" href="js/inbox.js"><link rel="modulepreload" href="js/focus.js"><link rel="modulepreload" href="js/bulk.js"><link rel="modulepreload" href="js/palette.js"><link rel="modulepreload" href="js/trash.js"><link rel="modulepreload" href="js/backup.js"><link rel="modulepreload" href="js/gestures.js">
+  <link rel="modulepreload" href="js/app.js"><link rel="modulepreload" href="js/store.js"><link rel="modulepreload" href="js/data.js"><link rel="modulepreload" href="js/views.js"><link rel="modulepreload" href="js/ui.js"><link rel="modulepreload" href="js/utils.js"><link rel="modulepreload" href="js/model.js"><link rel="modulepreload" href="js/task-panel.js"><link rel="modulepreload" href="js/project-page.js"><link rel="modulepreload" href="js/kanban.js"><link rel="modulepreload" href="js/gantt.js"><link rel="modulepreload" href="js/activities.js"><link rel="modulepreload" href="js/chatbot.js"><link rel="modulepreload" href="js/lib.js"><link rel="modulepreload" href="js/inbox.js"><link rel="modulepreload" href="js/focus.js"><link rel="modulepreload" href="js/bulk.js"><link rel="modulepreload" href="js/palette.js"><link rel="modulepreload" href="js/trash.js"><link rel="modulepreload" href="js/backup.js"><link rel="modulepreload" href="js/gestures.js"><link rel="modulepreload" href="js/analytics.js"><link rel="modulepreload" href="js/notify.js"><link rel="modulepreload" href="js/presence.js"><link rel="modulepreload" href="js/templates.js"><link rel="modulepreload" href="js/digest.js"><link rel="modulepreload" href="js/ai.js"><link rel="modulepreload" href="js/capture.js"><link rel="modulepreload" href="js/today.js"><link rel="modulepreload" href="js/i18n.js"><link rel="modulepreload" href="js/share.js">
   <script>
     (function () {
       try { var p = JSON.parse(localStorage.getItem('goals.prefs') || '{}'); var th = p.theme || 'auto'; if (th === 'auto') th = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; var h = document.documentElement; h.setAttribute('data-theme', th); if (p.accent && p.accent !== 'blue') h.setAttribute('data-accent', p.accent); if (p.fontSize && p.fontSize !== 'normal') h.setAttribute('data-font', p.fontSize); } catch (e) {}
@@ -71,6 +71,8 @@
     <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 9v4l2.5 2M9 2h6M12 2v3"/></symbol>
     <symbol id="i-upload" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 15V3m0 0L8 7m4-4 4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
     <symbol id="i-star" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
     <symbol id="i-eye" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   </defs></svg>
 
@@ -140,6 +142,8 @@
           <button class="timer-pill" id="timerPill" hidden title="المؤقت يعمل"><svg class="ic"><use href="#i-timer"/></svg><span id="timerPillTxt"></span></button>
           <button class="btn hide-sm" id="addGoalTop"><svg class="ic"><use href="#i-flag"/></svg><span>هدف</span></button>
           <button class="btn btn-primary hide-sm" id="addTaskTop"><svg class="ic"><use href="#i-plus"/></svg><span>مهمة</span></button>
+          <span class="badge cat pending-badge" id="pendingBadge" hidden title="تغييرات محفوظة على الجهاز وستُرفع عند عودة الاتصال"></span>
+          <button class="iconbtn" id="todayBtn" title="خطة اليوم — وضع الاجتماع (T)"><svg class="ic"><use href="#i-sun"/></svg></button>
           <button class="iconbtn" id="focusBtn" title="وضع التركيز (F)"><svg class="ic"><use href="#i-target"/></svg></button>
           <div class="inbox-wrap"><button class="iconbtn" id="inboxBtn" title="الإشعارات (I)" aria-label="الإشعارات"><svg class="ic"><use href="#i-bell"/></svg><span class="inbox-badge" id="inboxBadge" hidden></span></button><div class="inbox-panel" id="inboxPanel" hidden></div></div>
           <button class="iconbtn" id="themeBtn" title="المظهر"><svg class="ic"><use href="#i-moon"/></svg></button>
@@ -224,7 +228,7 @@
     <table class="table kbd"><tbody>
       <tr><td><kbd>N</kbd></td><td>مهمة جديدة</td></tr><tr><td><kbd>G</kbd></td><td>مشروع جديد</td></tr>
       <tr><td><kbd>/</kbd> أو <kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>بحث وأوامر</td></tr>
-      <tr><td><kbd>F</kbd></td><td>وضع التركيز</td></tr><tr><td><kbd>I</kbd></td><td>الإشعارات</td></tr>
+      <tr><td><kbd>F</kbd></td><td>وضع التركيز</td></tr><tr><td><kbd>I</kbd></td><td>الإشعارات</td></tr><tr><td><kbd>T</kbd></td><td>خطة اليوم (وضع الاجتماع)</td></tr>
       <tr><td><kbd>1</kbd>…<kbd>6</kbd></td><td>التنقل بين الصفحات</td></tr>
       <tr><td><kbd>?</kbd></td><td>هذه النافذة</td></tr><tr><td><kbd>Esc</kbd></td><td>إغلاق أي نافذة</td></tr>
     </tbody></table>
@@ -232,7 +236,18 @@
 
   <div class="modal-bg" id="whatsNewModal" hidden><div class="modal" role="dialog" aria-modal="true">
     <button class="iconbtn modal-close" data-close aria-label="إغلاق"><svg class="ic"><use href="#i-close"/></svg></button>
-    <h2>ما الجديد في الإصدار 4 🎉</h2>
+    <h2>ما الجديد في الإصدار 5 🚀</h2>
+    <ul class="whats-new">
+      <li>🔔 <strong>إشعارات عبر الأجهزة:</strong> التكليف والتعليقات والإنجاز تصل لكل أجهزتك، مع Web Push اختياري.</li>
+      <li>🟢 <strong>حضور مباشر:</strong> من يتصفح المشروع الآن ومن يكتب في المحادثة.</li>
+      <li>🔗 <strong>مشاركة برابط للقراءة فقط</strong> لعميل أو مدير بدون حساب.</li>
+      <li>⛓ <strong>اعتماديات في الجانت</strong> بخطوط، وإزاحة تلقائية للمهام التابعة عند التأخير.</li>
+      <li>💰 <strong>التكلفة والميزانية:</strong> سعر ساعة لكل عضو، ميزانية لكل مشروع، وتقرير تكلفة.</li>
+      <li>⚙️ <strong>أتمتة المراحل:</strong> تكليف تلقائي وحد أقصى للمهام، و<strong>جدول محوري</strong> مشروع × عضو.</li>
+      <li>🧠 <strong>مساعد ذكي بـ Claude:</strong> يجيب عن بياناتك ويبني خططاً من جملة أو صورة، مع إدخال صوتي.</li>
+      <li>📬 <strong>ملخص أسبوعي</strong> بالبريد، <strong>تنبيه حمل العمل</strong> واقتراح إعادة التوزيع، قوالب مهام، وضع الاجتماع، إنجليزية جزئية، نسخ احتياطي تلقائي، واختبارات قبل كل رفع.</li>
+    </ul>
+    <h3 style="margin-top:1rem">الإصدار 4</h3>
     <ul class="whats-new">
       <li>⚡ <strong>تحميل أسرع بكثير:</strong> المكتبات تُحمَّل عند الحاجة فقط، وشاشة بداية فورية، وتحديث تلقائي هادئ.</li>
       <li>🔔 <strong>مركز إشعارات:</strong> المتأخر، اليوم، التكليفات الجديدة، الأنشطة، ومواعيد المشاريع والمعالم.</li>
@@ -245,6 +260,17 @@
       <li>⭐ مفضلة في القائمة الجانبية، لوحة أوامر ذكية، روابط مباشرة للمهام، تأجيل بنقرة، سحب على الموبايل، نسخ احتياطي واستيراد، ألوان وحجم خط.</li>
     </ul>
     <div class="btn-row end"><button class="btn btn-primary" data-close>رائع</button></div>
+  </div></div>
+
+  <div class="modal-bg" id="digestModal" hidden><div class="modal" role="dialog" aria-modal="true">
+    <button class="iconbtn modal-close" data-close aria-label="إغلاق"><svg class="ic"><use href="#i-close"/></svg></button>
+    <h2>الملخص الأسبوعي</h2>
+    <div id="digestBody"></div>
+  </div></div>
+
+  <div class="modal-bg" id="shareLinkModal" hidden><div class="modal" role="dialog" aria-modal="true">
+    <button class="iconbtn modal-close" data-close aria-label="إغلاق"><svg class="ic"><use href="#i-close"/></svg></button>
+    <div id="shareLinkBody"></div>
   </div></div>
 
   <div class="modal-bg" id="memberModal" hidden><div class="modal" role="dialog" aria-modal="true">

@@ -1,0 +1,13 @@
+// قواعد Firebase Storage المقترحة: مرفقات المهام + النسخ الاحتياطية التلقائية
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /tasks/{taskId}/{file} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.resource.size < 10 * 1024 * 1024;
+    }
+    match /backups/{uid}/{file} {
+      allow read, write: if request.auth != null && request.auth.uid == uid && request.resource.size < 20 * 1024 * 1024;
+    }
+  }
+}

@@ -15,8 +15,15 @@ import { initSwipe } from './gestures.js';
 import { prefetchLibs } from './lib.js';
 import { bulk, toggleBulk } from './bulk.js';
 import { esc, isoDate } from './utils.js';
+import { openToday, refreshToday, isTodayOpen } from './today.js';
+import { startPresence, setPresence } from './presence.js';
+import { refreshProjectPresence } from './project-page.js';
+import { refreshTyping } from './task-panel.js';
+import { applyLang, translateTree, t as tr } from './i18n.js';
+import { maybeAutoDigest } from './digest.js';
+import { autoBackup } from './backup.js';
 
-const APP_VERSION = '4.0';
+const APP_VERSION = '5.0';
 const $ = (id) => document.getElementById(id);
 const VIEWS = { dashboard: ['لوحة التحكم', V.renderDashboard], goals: ['المشاريع', V.renderGoals], tasks: ['المهام', V.renderTasks], calendar: ['التقويم', V.renderCalendar], activities: ['الأنشطة', renderActivities], reports: ['التقارير', V.renderReports], team: ['الفريق', V.renderTeam], activity: ['سجل النشاط', V.renderActivity], trash: ['سلة المحذوفات', renderTrash], settings: ['الإعدادات', V.renderSettings], project: ['المشروع', null] };
 let current = 'dashboard';
@@ -44,17 +51,22 @@ function route() {
   let view = VIEWS[parts[0]] ? parts[0] : 'dashboard';
   projectRoute = null; pendingTask = null;
   if (parts[0] === 'task' && parts[1]) { view = 'tasks'; pendingTask = parts[1]; }
+  // اختصارات أيقونة التطبيق (manifest shortcuts)
+  if (parts[0] === 'today') { setTimeout(openToday, 50); view = 'dashboard'; }
+  if (parts[0] === 'focus') { setTimeout(() => openFocus(), 50); view = 'dashboard'; }
+  if (parts[0] === 'new-task') { setTimeout(() => V.openTaskModal(), 50); view = 'tasks'; }
   if (view === 'project') { if (!parts[1]) view = 'goals'; else projectRoute = { id: parts[1], tab: parts[2] || 'overview' }; }
   if (view === 'team' && !state.isAdmin) { location.hash = 'dashboard'; return; }
   if (bulk.on && view !== 'tasks') toggleBulk();
   current = view;
   document.querySelectorAll('[data-view]').forEach(a => { const on = a.dataset.view === (view === 'project' ? 'goals' : view); a.classList.toggle('active', on); if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   const g = projectRoute && state.goals.find(x => x.id === projectRoute.id);
-  $('pageTitle').textContent = view === 'project' ? (g ? g.name : 'المشروع') : VIEWS[view][0];
-  document.title = `${$('pageTitle').textContent} — سجل أهدافي`;
+  $('pageTitle').textContent = view === 'project' ? (g ? g.name : tr('المشروع')) : tr(VIEWS[view][0]);
+  document.title = `${$('pageTitle').textContent} — ${tr('سجل أهدافي')}`;
   $('sidebar').classList.remove('open');
   render();
   $('view').scrollTop = 0;
+  if (view !== 'project') setPresence({ page: view, projectId: null, taskId: null });
   if (pendingTask) { const id = pendingTask; pendingTask = null; if (state.tasks.some(t => t.id === id)) openTask(id); else if (!state.loading) toast('المهمة غير موجودة أو ليس لديك صلاحية', { type: 'err' }); }
 }
 
@@ -74,7 +86,9 @@ function render() {
   else VIEWS[current][1](el);
   V.refreshDrawer();
   refreshTaskPanel();
+  refreshToday();
   renderBadges();
+  if (state.prefs.lang === 'en') translateTree(el);
 }
 
 function renderBadges() {
@@ -86,6 +100,7 @@ function renderBadges() {
   $('teamNavM').hidden = !state.isAdmin;
   refreshInboxBadge();
   renderFavorites();
+  const pb = $('pendingBadge'); if (pb) { pb.hidden = !state.pending; pb.textContent = state.pending ? `${state.pending} لم تُرفع بعد` : ''; }
 }
 
 function renderFavorites() {
@@ -155,10 +170,23 @@ function showApp(user) {
     $('userEmail').textContent = user.email || '';
     $('userRole').textContent = state.isAdmin ? 'مشرف' : 'مستخدم';
     $('demoBar').hidden = !isDemo();
+    handleShareTarget();
     route();
     setTimeout(checkNotifications, 2500);
+    startPresence();
+    setTimeout(() => { maybeAutoDigest(); autoBackup().catch(() => {}); }, 6000);
     try { if (localStorage.getItem('goals.seenVersion') !== APP_VERSION) { localStorage.setItem('goals.seenVersion', APP_VERSION); setTimeout(() => openModal('whatsNewModal'), 900); } } catch { /* ignore */ }
   }
+}
+
+/** استقبال المشاركة من نظام التشغيل (share_target في manifest): ?title=&text=&url= */
+function handleShareTarget() {
+  const q = new URLSearchParams(location.search);
+  if (!q.has('title') && !q.has('text') && !q.has('url')) return;
+  const text = [q.get('title'), q.get('text'), q.get('url')].filter(Boolean).join(' — ').trim();
+  history.replaceState(null, '', location.pathname + (location.hash || '#tasks'));
+  if (!text) return;
+  setTimeout(() => { V.openTaskModal(); const n = $('tName'); if (n) n.value = text.slice(0, 140); const notes = $('tNotes'); if (notes && text.length > 140) notes.value = text; toast('مشاركة من جهازك — راجع المهمة واحفظها', { ms: 4000 }); }, 400);
 }
 
 // ================= تنبيهات المتصفح =================
@@ -199,6 +227,7 @@ function bind() {
   $('addGoalTop').onclick = () => V.openGoalModal();
   $('addTaskTop').onclick = () => V.openTaskModal();
   $('focusBtn').onclick = () => openFocus();
+  $('todayBtn').onclick = () => openToday();
   $('signOutBtn').onclick = () => api.signOut();
   $('demoExit').onclick = () => api.signOut();
   $('drawerBg').onclick = V.closeDrawer;
@@ -207,8 +236,9 @@ function bind() {
     const inField = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); return; }
     if (inField || !state.user || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (isFocusOpen()) return;
+    if (isFocusOpen() || isTodayOpen()) return;
     const k = e.key.toLowerCase();
+    if (k === 't') openToday();
     if (e.key === '/') { e.preventDefault(); openPalette(); }
     if (e.key === '?') { e.preventDefault(); openModal('shortcutsModal'); }
     if (k === 'n') V.openTaskModal();
@@ -226,6 +256,10 @@ function bind() {
 
   subscribe((s, reason) => {
     if (reason === 'prefs') { applyTheme(); return; }
+    if (reason === 'notifications') { refreshInboxBadge(); return; }
+    if (reason === 'presence') { refreshProjectPresence(); refreshTyping(); return; }
+    if (reason === 'pending') { renderBadges(); return; }
+    if (reason === 'templates') { if (current === 'settings') render(); return; }
     if (['goals', 'tasks', 'users', 'profile', 'loading', 'error'].includes(reason)) {
       clearTimeout(rerender);
       rerender = setTimeout(() => {
@@ -247,6 +281,7 @@ function bind() {
 
 function boot() {
   applyTheme();
+  applyLang();
   setupAuth();
   bind();
   initChatbot();

@@ -7,6 +7,9 @@ import { toast, confirmDialog, promptDialog, popMenu, copyText } from './ui.js';
 import { projectStages, taskStage, stagePatch, completionPatch, subtasksOf, blockers, hoursSpent, checklistProgress, nextOccurrence, ACTIVITY_TYPES, RECURRENCE, TAG_COLORS } from './model.js';
 import { deleteTaskWithUndo, snoozeMenu } from './bulk.js';
 import { openFocus } from './focus.js';
+import { saveAsTemplate } from './templates.js';
+import { setTyping, typers, setPresence } from './presence.js';
+import { stageMovePatch } from './views.js';
 
 const $ = (id) => document.getElementById(id);
 let currentId = null, tab = 'details', messages = [], timerStart = null, timerTick = null;
@@ -23,9 +26,12 @@ export function openTask(id, initialTab) {
   requestAnimationFrame(() => d.classList.add('open'));
   render();
   document.dispatchEvent(new CustomEvent('goals:open', { detail: { type: 'task', id } }));
+  setPresence({ taskId: id });
   api.loadMessages(id).then(m => { messages = m; if (currentId === id) renderChatter(); });
 }
-export function closeTask() { const d = $('taskDrawer'); d.classList.remove('open'); setTimeout(() => { d.hidden = true; }, 250); $('taskDrawerBg').hidden = true; currentId = null; }
+export function closeTask() { const d = $('taskDrawer'); d.classList.remove('open'); setTimeout(() => { d.hidden = true; }, 250); $('taskDrawerBg').hidden = true; currentId = null; setPresence({ taskId: null, typing: null }); }
+/** تحديث مؤشر «يكتب…» دون إعادة رسم البطاقة */
+export function refreshTyping() { const el = $('chTyping'); if (!el || !currentId) return; const t = typers(currentId); el.textContent = t.length ? `${t.map(p => p.name).join('، ')} ${t.length === 1 ? 'يكتب' : 'يكتبون'}…` : ''; el.hidden = !t.length; }
 export function refreshTaskPanel() { if (currentId && !$('taskDrawer').hidden) render(); }
 export function openTaskId() { return currentId; }
 
@@ -81,6 +87,7 @@ function render() {
     ];
     if (can) {
       items.push({ label: 'تأجيل الموعد…', icon: 'cal', run: () => snoozeMenu(t, e.target.closest('button')) });
+      items.push({ label: 'حفظ كقالب مهمة', icon: 'archive', run: () => saveAsTemplate(t) });
       items.push({ label: 'تكرار المهمة (نسخة)', icon: 'copy', run: async () => { const id = await api.createTask({ name: `${t.name} (نسخة)`, goalId: t.goalId, stageId: t.stageId || null, priority: t.priority || 'medium', notes: t.notes || '', tags: t.tags || [], plannedHours: t.plannedHours || 0, dueDate: t.dueDate || null, startDate: t.startDate || null, assignedToUid: t.assignedToUid || state.user.uid, assignedUserIds: t.assignedUserIds || [], parentId: t.parentId || null, checklist: (t.checklist || []).map(c => ({ ...c, id: uid(), done: false })), recurrence: t.recurrence || null }); toast('تم إنشاء نسخة', { type: 'ok' }); if (id) openTask(id); } });
       items.push({ label: t.completed ? 'إعادة فتح المهمة' : 'إنجاز المهمة ✓', icon: 'check', run: () => { const p = completionPatch(g, !t.completed); if (!t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp(); patch(p); } });
     }
@@ -93,9 +100,7 @@ function render() {
 
 async function moveToStage(t, g, stageId) {
   const stages = projectStages(g); const s = stages.find(x => x.id === stageId); if (!s) return;
-  const p = stagePatch(s);
-  if (s.done && !t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp();
-  await patch(p);
+  await patch(stageMovePatch(t, g, s));
   if (s.done && t.recurrence && t.recurrence.freq) spawnRecurrence(t);
 }
 export async function spawnRecurrence(t) {
@@ -214,14 +219,20 @@ function renderChatter() {
   const items = (messages || []).slice().sort((a, b) => toMillis(a.createdAt) - toMillis(b.createdAt));
   box.innerHTML = `<div class="ch-head"><h3>المحادثة والسجل</h3><span class="hint">${items.length} رسالة</span></div>
     <div class="ch-list">${messages == null ? '<p class="hint">جارٍ التحميل…</p>' : items.map(m => `<div class="ch-msg ${m.type || 'comment'}">${avatar(m.uid, 28)}<div class="ch-body"><div class="ch-meta"><strong>${esc(m.name || userLabel(m.uid) || m.email || '')}</strong><span class="hint">${fmtDateTime(m.createdAt)}${m.type === 'note' ? ' · ملاحظة داخلية' : ''}</span></div><div class="ch-text">${linkify(esc(m.text || ''))}</div></div></div>`).join('') || '<p class="muted">لا رسائل بعد. ابدأ المحادثة أو سجّل ملاحظة.</p>'}</div>
+    <p class="hint typing" id="chTyping" hidden></p>
     <form class="ch-form" id="chForm"><textarea id="chText" rows="2" placeholder="اكتب تعليقاً… (@اسم للإشارة)" maxlength="2000"></textarea><div class="ch-actions"><label class="switch small"><input type="checkbox" id="chNote"><span>ملاحظة داخلية</span></label><button type="submit" class="btn btn-primary btn-sm">إرسال</button></div></form>`;
+  refreshTyping();
+  let typingTimer = null;
+  $('chText').oninput = () => { setTyping(t.id); clearTimeout(typingTimer); typingTimer = setTimeout(() => setTyping(null), 6000); };
+  $('chText').onblur = () => { clearTimeout(typingTimer); setTyping(null); };
   $('chForm').onsubmit = async (e) => {
     e.preventDefault();
     const text = $('chText').value.trim(); if (!text) return;
     const mentions = state.users.filter(u => u.displayName && text.includes('@' + u.displayName)).map(u => u.uid);
     const m = await api.addMessage(t.id, { type: $('chNote').checked ? 'note' : 'comment', text, mentions });
     if (m) { messages = [...(messages || []), m]; renderChatter(); }
-    $('chText').value = '';
+    setTyping(null);
+    if ($('chText')) $('chText').value = '';
   };
   $('chText').onkeydown = (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('chForm').requestSubmit(); };
   const list = box.querySelector('.ch-list'); list.scrollTop = 1e9;

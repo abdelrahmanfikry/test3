@@ -6,6 +6,10 @@ import { toast, confirmDialog, promptDialog, copyText } from './ui.js';
 import { ensureChart, ensureSortable } from './lib.js';
 import { duplicateProject, exportProject, exportICS } from './backup.js';
 import { deleteGoalWithUndo } from './bulk.js';
+import { projectCost } from './analytics.js';
+import { viewers, setPresence } from './presence.js';
+import { shareProject } from './share.js';
+import { applyGanttChange, stageMovePatch } from './views.js';
 import { projectStages, taskStage, stagePatch, projectStats, burndown, newStage, TAG_COLORS, subtaskProgress, blockers, checklistProgress, hoursSpent } from './model.js';
 import { renderKanban } from './kanban.js';
 import { renderGantt } from './gantt.js';
@@ -45,19 +49,28 @@ export function renderProject(el, id, tab = 'overview') {
     <div class="pp-head" style="--gc:${g.color || '#2563eb'}">
       <a href="#goals" class="iconbtn" title="رجوع"><svg class="ic"><use href="#i-next"/></svg></a>
       <div class="pp-title"><span class="goal-dot"></span><h1>${esc(g.name)}</h1>${g.template ? '<span class="badge cat">قالب</span>' : ''}${g.archived ? '<span class="badge st-archived">مؤرشف</span>' : ''}<button class="star ${isFavorite(g.id) ? 'on' : ''}" id="ppFav" title="إضافة للمفضلة (تظهر في القائمة الجانبية)">★</button></div>
-      <div class="pp-meta"><span class="hint">${fmtDate(g.startDate)} → ${fmtDate(g.endDate)}</span>${g.manager ? `<span class="who">${avatar(g.manager, 20)} ${esc(userLabel(g.manager))}</span>` : ''}<span class="avatars">${(g.assignedUserIds || []).slice(0, 6).map(u => avatar(u, 22)).join('')}</span></div>
+      <div class="pp-meta"><span class="hint">${fmtDate(g.startDate)} → ${fmtDate(g.endDate)}</span>${g.manager ? `<span class="who">${avatar(g.manager, 20)} ${esc(userLabel(g.manager))}</span>` : ''}<span class="avatars">${(g.assignedUserIds || []).slice(0, 6).map(u => avatar(u, 22)).join('')}</span><span class="pp-viewers" id="ppViewers">${viewersHtml(id)}</span></div>
       <div class="pp-progress"><div class="progress"><div class="progress-bar" style="width:${st.pct}%;background:var(--gc)"></div></div><span>${st.pct}% · ${st.done}/${st.total} مهمة</span></div>
       <nav class="tabs">${TABS.map(([k, v]) => `<a href="#project/${id}/${k}" class="${tab === k ? 'on' : ''}">${v}</a>`).join('')}</nav>
     </div>
     <div id="ppBody"></div>`;
   const body = $('ppBody');
   document.dispatchEvent(new CustomEvent('goals:open', { detail: { type: 'project', id } }));
+  setPresence({ page: 'project', projectId: id, taskId: null });
   $('ppFav').onclick = () => { const f = favorites(); api.updateProfile({ favorites: f.includes(id) ? f.filter(x => x !== id) : [...f, id].slice(-8) }); toast(f.includes(id) ? 'أُزيل من المفضلة' : 'أُضيف إلى المفضلة ★', { type: 'ok' }); };
   ({ overview: renderOverview, kanban: renderKan, list: renderList, gantt: renderGan, milestones: renderMilestones, settings: renderSettings }[tab] || renderOverview)(body, g, tasks, st, can);
 }
 
+function viewersHtml(projectId) {
+  const v = viewers(projectId);
+  return v.length ? `<span class="viewers" title="${esc(v.map(p => p.name).join('، '))}">${v.slice(0, 4).map(p => avatar(p.uid, 20)).join('')}<span class="live-dot"></span><small>${v.length === 1 ? esc(v[0].name) + ' يتصفح الآن' : v.length + ' يتصفحون الآن'}</small></span>` : '';
+}
+/** يُستدعى عند تحديث الحضور دون إعادة رسم الصفحة */
+export function refreshProjectPresence() { const el = $('ppViewers'); const m = location.hash.match(/^#project\/([^/]+)/); if (el && m) el.innerHTML = viewersHtml(m[1]); }
+
 function renderOverview(body, g, tasks, st, can) {
   const open = sortTasks(tasks.filter(t => !t.completed && !t.parentId));
+  const cost = projectCost(g, state.tasks, state.users);
   const late = open.filter(t => t.dueDate && daysFromToday(t.dueDate) < 0);
   const ms = (g.milestones || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const bd = burndown(g, state.tasks, 30);
@@ -69,7 +82,9 @@ function renderOverview(body, g, tasks, st, can) {
       <div class="kpi"><span class="kpi-label">متأخرة</span><span class="kpi-value ${st.late ? 'c-danger' : ''}">${st.late}</span></div>
       <div class="kpi"><span class="kpi-label">الساعات</span><span class="kpi-value">${st.spent}<small>/${st.planned || g.plannedHours || '—'}</small></span></div>
       <div class="kpi"><span class="kpi-label">المعالم</span><span class="kpi-value">${st.milestonesDone}<small>/${st.milestones}</small></span></div>
+      ${cost.cost || cost.budget ? `<div class="kpi"><span class="kpi-label">التكلفة${cost.budget ? ' / الميزانية' : ''}</span><span class="kpi-value ${cost.over ? 'c-danger' : ''}">${cost.cost.toLocaleString('ar-EG')}${cost.budget ? `<small>/${cost.budget.toLocaleString('ar-EG')}</small>` : ''}</span>${cost.pct != null ? `<div class="progress"><div class="progress-bar" style="width:${Math.min(100, cost.pct)}%;background:${cost.over ? 'var(--danger)' : cost.pct > 80 ? 'var(--warning)' : 'var(--success)'}"></div></div>` : ''}</div>` : ''}
     </div>
+    ${cost.over ? `<div class="alert bad">⚠️ تجاوزت التكلفة الميزانية بـ ${(cost.cost - cost.budget).toLocaleString('ar-EG')} (${cost.pct}%).</div>` : ''}
     <div class="grid-2">
       <div class="panel"><h2>المهام حسب المرحلة</h2><div class="stage-bars">${st.byStage.map(x => `<div class="sbar"><span class="sbar-name"><i style="background:${x.stage.color}"></i>${esc(x.stage.name)}</span><div class="progress sm"><div class="progress-bar" style="width:${st.total ? (x.count / st.total) * 100 : 0}%;background:${x.stage.color}"></div></div><span class="sbar-n">${x.count}</span></div>`).join('')}</div>
         <h2 style="margin-top:1rem">Burndown (30 يوم)</h2><div class="chart"><canvas id="ppBurn"></canvas></div></div>
@@ -95,7 +110,7 @@ function renderKan(body, g, tasks, st, can) {
     foldedByProject[g.id] = renderKanban($('kWrap'), {
       columns: stages, items, colOf: (t) => taskStage(t, g).id, card: (t) => kanbanCard(t, g), folded: foldedByProject[g.id],
       onOpen: openTask,
-      onMove: async (taskId, colId, ids) => { const s = stages.find(x => x.id === colId); const t = state.tasks.find(x => x.id === taskId); if (!s || !t) return; const p = stagePatch(s); if (s.done && !t.completed) p.completedAt = isDemo() ? Date.now() : window.firebase.firestore.FieldValue.serverTimestamp(); await api.updateTask(taskId, p); api.reorderTasks(ids).catch(() => {}); },
+      onMove: async (taskId, colId, ids) => { const s = stages.find(x => x.id === colId); const t = state.tasks.find(x => x.id === taskId); if (!s || !t) return; await api.updateTask(taskId, stageMovePatch(t, g, s)); api.reorderTasks(ids).catch(() => {}); },
       onQuickAdd: (colId, name) => api.createTask({ name, goalId: g.id, stageId: colId, priority: 'medium', assignedToUid: state.user.uid, dueDate: null }),
       onColMenu: can ? (col, btn) => stageMenu(g, col, btn) : null,
     });
@@ -141,7 +156,7 @@ function renderList(body, g, tasks) {
 
 function renderGan(body, g, tasks, st, can) {
   body.innerHTML = `<div class="panel"><p class="hint">اسحب الشريط لتحريك المهمة، أو اسحب طرفيه لتغيير المدة. اضغط للفتح. ◆ = معلم.</p><div id="ganttWrap"></div></div>`;
-  renderGantt($('ganttWrap'), sortTasks(tasks), { project: g, onOpen: openTask, onChange: can ? (id, p) => api.updateTask(id, p).then(() => toast('تم تحديث التواريخ', { type: 'ok' })) : null });
+  renderGantt($('ganttWrap'), sortTasks(tasks), { project: g, onOpen: openTask, onChange: can ? (id, p, shifts) => applyGanttChange(id, p, shifts) : null });
 }
 
 function renderMilestones(body, g, tasks, st, can) {
@@ -162,7 +177,8 @@ function renderSettings(body, g, tasks, st, can) {
   body.innerHTML = `<div class="grid-2">
     <div class="stack">
       <div class="panel"><h2>المراحل</h2><p class="hint">اسحب لإعادة الترتيب. المرحلة النهائية تعني إنجاز المهمة.</p>
-        <div class="stage-list" id="stageList">${stages.map(s => `<div class="stage-row" data-id="${s.id}"><span class="drag"><svg class="ic"><use href="#i-grip"/></svg></span><input type="color" value="${s.color || '#2563eb'}" data-f="color" aria-label="اللون"><input type="text" value="${esc(s.name)}" data-f="name" maxlength="40"><label class="switch small"><input type="checkbox" data-f="fold" ${s.fold ? 'checked' : ''}><span>طيّ</span></label><label class="switch small"><input type="checkbox" data-f="done" ${s.done ? 'checked' : ''}><span>نهائية</span></label><input type="number" min="0" data-f="limit" value="${s.limit || ''}" placeholder="حد" title="حد المهام (WIP)" style="width:64px"><button class="iconbtn danger" data-del="${s.id}" aria-label="حذف"><svg class="ic"><use href="#i-trash"/></svg></button></div>`).join('')}</div>
+        <div class="stage-list" id="stageList">${stages.map(s => `<div class="stage-row" data-id="${s.id}"><span class="drag"><svg class="ic"><use href="#i-grip"/></svg></span><input type="color" value="${s.color || '#2563eb'}" data-f="color" aria-label="اللون"><input type="text" value="${esc(s.name)}" data-f="name" maxlength="40"><label class="switch small"><input type="checkbox" data-f="fold" ${s.fold ? 'checked' : ''}><span>طيّ</span></label><label class="switch small"><input type="checkbox" data-f="done" ${s.done ? 'checked' : ''}><span>نهائية</span></label><input type="number" min="0" data-f="limit" value="${s.limit || ''}" placeholder="حد" title="حد المهام (WIP): تنبيه عند التجاوز" style="width:64px"><select data-f="auto" title="تكليف تلقائي عند الانتقال لهذه المرحلة"><option value="">بدون تكليف تلقائي</option>${state.users.map(u => `<option value="${u.uid}" ${s.autoAssign === u.uid ? 'selected' : ''}>→ ${esc(u.displayName || u.email)}</option>`).join('')}</select><button class="iconbtn danger" data-del="${s.id}" aria-label="حذف"><svg class="ic"><use href="#i-trash"/></svg></button></div>`).join('')}</div>
+        <p class="hint">أتمتة: «حد» يُنبّه عند تجاوز عدد المهام في المرحلة، و«تكليف تلقائي» يضيف العضو لكل مهمة تدخل المرحلة.</p>
         <div class="btn-row"><button class="btn btn-sm" id="stAdd"><svg class="ic"><use href="#i-plus"/></svg> مرحلة</button><button class="btn btn-primary btn-sm" id="stSave">حفظ المراحل</button></div></div>
       <div class="panel"><h2>التاجز</h2><div class="tags-edit" id="tagList">${(g.tags || []).map(t => `<span class="tag" style="--tc:${t.color}">${esc(t.name)} <button data-tag-del="${t.id}" aria-label="حذف">×</button></span>`).join('') || '<span class="hint">لا تاجز.</span>'}</div>
         <form class="quick-add" id="tagAdd"><svg class="ic"><use href="#i-plus"/></svg><input type="text" placeholder="تاج جديد… Enter" maxlength="30"><button class="btn btn-sm btn-primary" type="submit">إضافة</button></form></div>
@@ -171,6 +187,7 @@ function renderSettings(body, g, tasks, st, can) {
       <div class="panel"><h2>عام</h2>
         <label class="field"><span>مدير المشروع</span><select id="psManager"><option value="">—</option>${state.users.map(u => `<option value="${u.uid}" ${g.manager === u.uid ? 'selected' : ''}>${esc(u.displayName || u.email)}</option>`).join('')}</select></label>
         <label class="field"><span>الساعات المخططة للمشروع</span><input type="number" id="psHours" min="0" value="${g.plannedHours || ''}"></label>
+        <label class="field"><span>الميزانية (بعملتك) — تُقارن بالساعات المسجّلة × سعر ساعة العضو</span><input type="number" id="psBudget" min="0" value="${g.budget || ''}" placeholder="0"></label>
         <label class="field"><span>التصنيف</span><select id="psCat">${Object.entries(CATEGORIES).map(([k, v]) => `<option value="${k}" ${g.category === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label class="field"><span>الخصوصية</span><select id="psPrivacy"><option value="followers" ${privacy === 'followers' ? 'selected' : ''}>المتابعون فقط (المكلّفون بالمشروع)</option><option value="public" ${privacy === 'public' ? 'selected' : ''}>كل أعضاء الفريق</option></select></label>
         <label class="switch"><input type="checkbox" id="psTemplate" ${g.template ? 'checked' : ''}><span>استخدام هذا المشروع كقالب</span></label>
@@ -181,6 +198,7 @@ function renderSettings(body, g, tasks, st, can) {
         <button class="btn btn-sm" id="psExport"><svg class="ic"><use href="#i-download"/></svg> تصدير JSON</button>
         <button class="btn btn-sm" id="psIcs"><svg class="ic"><use href="#i-cal"/></svg> تصدير للتقويم (.ics)</button>
         <button class="btn btn-sm" id="psLink"><svg class="ic"><use href="#i-link"/></svg> نسخ الرابط</button>
+        <button class="btn btn-sm ${g.shareToken ? 'btn-ok' : ''}" id="psShare"><svg class="ic"><use href="#i-globe"/></svg> ${g.shareToken ? 'رابط المشاركة (مفعّل)' : 'مشاركة برابط للقراءة فقط'}</button>
         <button class="btn btn-sm btn-danger" id="psDelete"><svg class="ic"><use href="#i-trash"/></svg> حذف المشروع</button>
       </div><p class="hint">الحذف ينقل المشروع ومهامه إلى سلة المحذوفات ويمكن استعادته خلال 30 يوماً.</p></div>
       <div class="panel"><h2>المتابعون / الأعضاء</h2><div class="tp-people">${(g.assignedUserIds || []).map(u => `<span class="pill">${avatar(u, 20)} ${esc(userLabel(u))} <button data-rm-member="${u}" aria-label="إزالة">×</button></span>`).join('')}<select id="psAddMember" class="pill-add"><option value="">+ عضو</option>${state.users.filter(u => !(g.assignedUserIds || []).includes(u.uid)).map(u => `<option value="${u.uid}">${esc(u.displayName || u.email)}</option>`).join('')}</select></div></div>
@@ -190,14 +208,16 @@ function renderSettings(body, g, tasks, st, can) {
   $('psExport').onclick = () => exportProject(g);
   $('psIcs').onclick = () => exportICS(tasks, g.name.replace(/\s+/g, '-'));
   $('psLink').onclick = () => copyText(`${location.origin}${location.pathname}#project/${g.id}`, 'تم نسخ رابط المشروع');
+  $('psShare').onclick = () => shareProject(g);
+  $('psBudget').onchange = e => api.updateGoal(g.id, { budget: Number(e.target.value) || 0 });
   $('psDelete').onclick = async () => { if (await deleteGoalWithUndo(g, tasks.length)) location.hash = 'goals'; };
   // المراحل
   ensureSortable().then(S => { if ($('stageList')) new S($('stageList'), { animation: 150, handle: '.drag' }); }).catch(() => {});
-  $('stAdd').onclick = () => { const row = document.createElement('div'); row.className = 'stage-row'; row.dataset.id = uid(); row.innerHTML = `<span class="drag"><svg class="ic"><use href="#i-grip"/></svg></span><input type="color" value="#2563eb" data-f="color"><input type="text" value="" data-f="name" placeholder="اسم المرحلة" maxlength="40"><label class="switch small"><input type="checkbox" data-f="fold"><span>طيّ</span></label><label class="switch small"><input type="checkbox" data-f="done"><span>نهائية</span></label><input type="number" min="0" data-f="limit" placeholder="حد" style="width:64px"><button class="iconbtn danger" data-del="new" aria-label="حذف"><svg class="ic"><use href="#i-trash"/></svg></button>`; $('stageList').appendChild(row); row.querySelector('[data-f="name"]').focus(); row.querySelector('[data-del]').onclick = () => row.remove(); };
+  $('stAdd').onclick = () => { const row = document.createElement('div'); row.className = 'stage-row'; row.dataset.id = uid(); row.innerHTML = `<span class="drag"><svg class="ic"><use href="#i-grip"/></svg></span><input type="color" value="#2563eb" data-f="color"><input type="text" value="" data-f="name" placeholder="اسم المرحلة" maxlength="40"><label class="switch small"><input type="checkbox" data-f="fold"><span>طيّ</span></label><label class="switch small"><input type="checkbox" data-f="done"><span>نهائية</span></label><input type="number" min="0" data-f="limit" placeholder="حد" style="width:64px"><select data-f="auto"><option value="">بدون تكليف تلقائي</option>${state.users.map(u => `<option value="${u.uid}">→ ${esc(u.displayName || u.email)}</option>`).join('')}</select><button class="iconbtn danger" data-del="new" aria-label="حذف"><svg class="ic"><use href="#i-trash"/></svg></button>`; $('stageList').appendChild(row); row.querySelector('[data-f="name"]').focus(); row.querySelector('[data-del]').onclick = () => row.remove(); };
   body.querySelectorAll('[data-del]').forEach(b => { b.onclick = (e) => e.target.closest('.stage-row').remove(); });
   $('stSave').onclick = async () => {
     const rows = [...$('stageList').querySelectorAll('.stage-row')];
-    const next = rows.map(r => ({ id: r.dataset.id, name: r.querySelector('[data-f="name"]').value.trim() || 'مرحلة', color: r.querySelector('[data-f="color"]').value, fold: r.querySelector('[data-f="fold"]').checked, done: r.querySelector('[data-f="done"]').checked, limit: Number(r.querySelector('[data-f="limit"]').value) || 0 }));
+    const next = rows.map(r => ({ id: r.dataset.id, name: r.querySelector('[data-f="name"]').value.trim() || 'مرحلة', color: r.querySelector('[data-f="color"]').value, fold: r.querySelector('[data-f="fold"]').checked, done: r.querySelector('[data-f="done"]').checked, limit: Number(r.querySelector('[data-f="limit"]').value) || 0, autoAssign: (r.querySelector('[data-f="auto"]') || {}).value || null }));
     if (!next.length) { toast('لازم مرحلة واحدة على الأقل', { type: 'err' }); return; }
     if (!next.some(s => s.done)) next[next.length - 1].done = true;
     const removed = stages.filter(s => !next.some(n => n.id === s.id));

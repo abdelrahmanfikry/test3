@@ -14,11 +14,32 @@ const FIREBASE_CONFIG = {
   measurementId: 'G-8S5SLY6S2Y',
 };
 
+/** مفتاح VAPID لإشعارات Web Push (Firebase Console → Cloud Messaging → Web Push certificates). اتركه فارغاً لتعطيل FCM. */
+export const FCM_VAPID_KEY = '';
+
 let auth = null, db = null, FV = null, storage = null;
 let unsub = [];
 let adapter = null;
-let usersSig = '', presenceTimer = null, purgeTimer = null;
+let usersSig = '', presenceTimer = null, purgeTimer = null, notifCleaned = false;
 const TRASH_MS = 30 * 86400000;
+const isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || matchMedia('(display-mode: standalone)').matches;
+
+/** يبني إشعارات لحدث ما (مشترك بين Firebase والتجريبي). يعيد [{to, type, title, body, taskId, projectId, tab}] */
+function notifPayloads(kind, ctx) {
+  const me = state.user.uid, out = [];
+  const add = (to, type, title, body, extra = {}) => { if (to && to !== me && !out.some(o => o.to === to && o.type === type)) out.push({ to, type, title, body: body || '', ...extra }); };
+  const t = ctx.task || {}; const g = state.goals.find(x => x.id === t.goalId);
+  const base = { taskId: t.id || null, projectId: t.goalId || null };
+  if (kind === 'assigned') for (const u of ctx.uids || []) add(u, 'assigned', t.name || 'مهمة', `كُلّفت بهذه المهمة${g ? ' في ' + g.name : ''}`, base);
+  if (kind === 'done') add(t.createdBy, 'done', t.name || 'مهمة', 'أُنجزت مهمة أنشأتها', base);
+  if (kind === 'stage') add(t.createdBy, 'stage', t.name || 'مهمة', `انتقلت إلى «${ctx.stageName}»`, base);
+  if (kind === 'comment') {
+    for (const u of ctx.mentions || []) add(u, 'mention', t.name || 'مهمة', (ctx.text || '').slice(0, 120), { ...base, tab: 'details' });
+    for (const u of [...(t.assignedUserIds || []), t.assignedToUid, t.createdBy]) add(u, 'comment', t.name || 'مهمة', (ctx.text || '').slice(0, 120), { ...base, tab: 'details' });
+  }
+  return out;
+}
+function actorName() { return (state.profile && state.profile.displayName) || (state.user && (state.user.displayName || state.user.email)) || ''; }
 
 function splitTasks(all) { state.trash.tasks = all.filter(t => t.deleted); state.tasks = all.filter(t => !t.deleted); }
 function splitGoals(all) { state.trash.goals = all.filter(g => g.deleted); return all.filter(g => !g.deleted); }
@@ -34,9 +55,10 @@ const fb = {
     db = window.firebase.firestore();
     FV = window.firebase.firestore.FieldValue;
     try { db.enablePersistence({ synchronizeTabs: true }).catch(() => {}); } catch { /* ignore */ }
+    auth.getRedirectResult().catch(e => console.warn('redirect', e));
     auth.onAuthStateChanged(async (u) => {
       detach(); clearInterval(presenceTimer); clearTimeout(purgeTimer);
-      if (!u) { state.user = null; state.profile = null; state.isAdmin = false; state.goals = []; state.tasks = []; state.trash = { goals: [], tasks: [] }; usersSig = ''; onUser(null); return; }
+      if (!u) { state.user = null; state.profile = null; state.isAdmin = false; state.goals = []; state.tasks = []; state.trash = { goals: [], tasks: [] }; state.notifications = []; state.presence = []; state.taskTemplates = []; state.pending = 0; usersSig = ''; notifCleaned = false; onUser(null); return; }
       state.user = { uid: u.uid, email: u.email || '', displayName: u.displayName || '', photoURL: u.photoURL || '' };
       await fb.ensureProfile(u);
       attach();
@@ -61,7 +83,8 @@ const fb = {
   },
   signIn: (email, pw) => auth.signInWithEmailAndPassword(email.trim(), pw),
   signUp: async (email, pw, name) => { const c = await auth.createUserWithEmailAndPassword(email.trim(), pw); if (name) await c.user.updateProfile({ displayName: name }).catch(() => {}); return c; },
-  signInGoogle: () => auth.signInWithPopup(new window.firebase.auth.GoogleAuthProvider()),
+  // على الموبايل/التطبيق المثبّت نستخدم إعادة التوجيه لأن النوافذ المنبثقة تُحجب كثيراً
+  signInGoogle: () => { const p = new window.firebase.auth.GoogleAuthProvider(); return isMobile() ? auth.signInWithRedirect(p) : auth.signInWithPopup(p); },
   resetPassword: (email) => auth.sendPasswordResetEmail(email.trim()),
   signOut: () => auth.signOut(),
 
@@ -70,9 +93,12 @@ const fb = {
     const u = state.user;
     state.loading = true; notify('loading');
     const onErr = (label) => (e) => { console.error(label, e); state.loading = false; notify('error'); };
+    // عدّاد الكتابات غير المرفوعة بعد (أوفلاين): نستمع لتغيّرات البيانات الوصفية دون إعادة رسم كاملة
+    const pendingOf = (s) => { const n = s.docs.filter(d => d.metadata.hasPendingWrites).length; if (n !== state.pending) { state.pending = n; notify('pending'); } };
+    const onTasks = (s) => { pendingOf(s); if (!s.docChanges().length && state.tasks.length) return; splitTasks(s.docs.map(d => ({ id: d.id, ...d.data() }))); notify('tasks'); };
     if (state.isAdmin) {
       unsub.push(db.collection('goals').orderBy('createdAt', 'desc').onSnapshot(s => { state.goals = splitGoals(s.docs.map(d => ({ id: d.id, ...d.data() }))); state.loading = false; notify('goals'); }, onErr('goals')));
-      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot(s => { splitTasks(s.docs.map(d => ({ id: d.id, ...d.data() }))); notify('tasks'); }, onErr('tasks')));
+      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot({ includeMetadataChanges: true }, onTasks, onErr('tasks')));
     } else {
       let assigned = {}, pub = {};
       const merge = () => {
@@ -84,8 +110,19 @@ const fb = {
       };
       unsub.push(db.collection('goals').where('assignedUserIds', 'array-contains', u.uid).onSnapshot(s => { assigned = {}; s.forEach(d => { assigned[d.id] = { id: d.id, ...d.data() }; }); merge(); }, onErr('goals-assigned')));
       unsub.push(db.collection('goals').where('visibility', '==', 'public').onSnapshot(s => { pub = {}; s.forEach(d => { pub[d.id] = { id: d.id, ...d.data() }; }); merge(); }, onErr('goals-public')));
-      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot(s => { splitTasks(s.docs.map(d => ({ id: d.id, ...d.data() }))); notify('tasks'); }, onErr('tasks')));
+      unsub.push(db.collection('tasks').orderBy('createdAt', 'desc').onSnapshot({ includeMetadataChanges: true }, onTasks, onErr('tasks')));
     }
+    // إشعاراتي على السيرفر (تُقرأ من كل الأجهزة)
+    unsub.push(db.collection('notifications').where('to', '==', u.uid).onSnapshot(s => {
+      const list = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+      state.notifications = list.slice(0, 80);
+      document.dispatchEvent(new CustomEvent('goals:notifications', { detail: list }));
+      notify('notifications');
+      if (!notifCleaned) { notifCleaned = true; const cutoff = Date.now() - TRASH_MS; const old = list.filter(n => n.read && toMillis(n.createdAt) && toMillis(n.createdAt) < cutoff).slice(0, 200); if (old.length) { const b = db.batch(); old.forEach(n => b.delete(db.collection('notifications').doc(n.id))); b.commit().catch(() => {}); } }
+    }, e => console.warn('notifications', e)));
+    // الحضور المباشر وقوالب المهام (مجموعات صغيرة)
+    unsub.push(db.collection('presence').onSnapshot(s => { state.presence = s.docs.map(d => ({ uid: d.id, ...d.data() })); notify('presence'); }, () => {}));
+    unsub.push(db.collection('taskTemplates').orderBy('createdAt', 'desc').onSnapshot(s => { state.taskTemplates = s.docs.map(d => ({ id: d.id, ...d.data() })); notify('templates'); }, () => {}));
     // البروفايلات: للأدمن الكل، ولغيره نحمّل عند الحاجة
     fb.loadUsers().catch(() => {});
     // تنظيف سلة المحذوفات (أقدم من 30 يوماً) بعد استقرار البيانات
@@ -95,7 +132,7 @@ const fb = {
     try {
       const s = await db.collection('userProfiles').orderBy('email').get();
       const list = s.docs.map(d => ({ uid: d.id, ...d.data() }));
-      const sig = list.map(u => `${u.uid}|${u.role}|${u.displayName || ''}|${u.photoURL || ''}|${toMillis(u.lastSeen)}|${JSON.stringify(u.favorites || [])}`).join(';');
+      const sig = list.map(u => `${u.uid}|${u.role}|${u.displayName || ''}|${u.photoURL || ''}|${toMillis(u.lastSeen)}|${JSON.stringify(u.favorites || [])}|${u.hourlyRate || 0}|${u.weeklyCapacity || 0}`).join(';');
       state.users = list;
       // لا نُشعر المشتركين إلا إذا تغيّر شيء فعلاً (يمنع حلقة إعادة رسم صفحة الفريق)
       if (sig !== usersSig) { usersSig = sig; notify('users'); }
@@ -157,14 +194,23 @@ const fb = {
     fb.log('create', 'task', ref.id, { name: t.name, goalId: t.goalId });
     fb.syncProgress(t.goalId);
     if (doc.assignedToEmail && doc.assignedToUid !== u.uid) fb.mail([doc.assignedToEmail], 'تم تعيين مهمة لك', `<h3>مهمة جديدة</h3><p><strong>${t.name}</strong></p>${t.dueDate ? `<p>الموعد: ${t.dueDate}</p>` : ''}`);
+    fb.pushNotifications(notifPayloads('assigned', { task: { ...doc, id: ref.id }, uids: [...new Set([...(doc.assignedUserIds || []), doc.assignedToUid].filter(Boolean))] }));
     return ref.id;
   },
   async updateTask(id, patch) {
     if (patch.assignedToUid !== undefined) { const a = state.users.find(x => x.uid === patch.assignedToUid); patch.assignedToEmail = a ? a.email : null; }
+    const before = state.tasks.find(x => x.id === id);
     await db.collection('tasks').doc(id).update({ ...patch, updatedAt: FV.serverTimestamp() });
     fb.log('update', 'task', id, patch);
-    const t = state.tasks.find(x => x.id === id);
-    if (t) fb.syncProgress(patch.goalId || t.goalId);
+    if (before) {
+      fb.syncProgress(patch.goalId || before.goalId);
+      const after = { ...before, ...patch };
+      const was = new Set([...(before.assignedUserIds || []), before.assignedToUid].filter(Boolean));
+      const now = [...new Set([...(after.assignedUserIds || []), after.assignedToUid].filter(Boolean))].filter(x => !was.has(x));
+      if (now.length) fb.pushNotifications(notifPayloads('assigned', { task: after, uids: now }));
+      if (patch.completed === true && !before.completed) fb.pushNotifications(notifPayloads('done', { task: after }));
+      else if (patch.stageId && patch.stageId !== before.stageId) { const g = state.goals.find(x => x.id === after.goalId); const s = g && (g.stages || []).find(x => x.id === patch.stageId); if (s) fb.pushNotifications(notifPayloads('stage', { task: after, stageName: s.name })); }
+    }
   },
   async toggleTask(id, completed) {
     const t = state.tasks.find(x => x.id === id);
@@ -177,8 +223,34 @@ const fb = {
         const to = new Set([g && g.createdBy, t.assignedToUid].filter(Boolean).filter(x => x !== state.user.uid));
         const emails = state.users.filter(x => to.has(x.uid)).map(x => x.email).filter(Boolean);
         fb.mail(emails, 'تم إنجاز مهمة', `<h3>تم إنجاز مهمة</h3><p><strong>${t.name}</strong></p>`);
+        fb.pushNotifications(notifPayloads('done', { task: t }));
       }
     }
+  },
+  // ----- إشعارات السيرفر، الحضور، القوالب، المشاركة، الفريق، النسخ الاحتياطي -----
+  pushNotifications(list) {
+    for (const n of list) db.collection('notifications').add({ ...n, by: state.user.uid, byName: actorName(), read: false, createdAt: FV.serverTimestamp() }).catch(() => {});
+  },
+  async markNotificationRead(id) { await db.collection('notifications').doc(id).update({ read: true }); },
+  async markAllNotificationsRead() { const b = db.batch(); (state.notifications || []).filter(n => !n.read).forEach(n => b.update(db.collection('notifications').doc(n.id), { read: true })); await b.commit(); },
+  async registerPushToken(token) { await db.collection('userProfiles').doc(state.user.uid).set({ fcmTokens: FV.arrayUnion(token) }, { merge: true }); },
+  async setPresence(p) { await db.collection('presence').doc(state.user.uid).set({ ...p, uid: state.user.uid, at: FV.serverTimestamp() }, { merge: true }); },
+  clearPresence() { try { db.collection('presence').doc(state.user.uid).delete(); } catch { /* ignore */ } },
+  async saveTaskTemplate(tpl) { await db.collection('taskTemplates').doc(tpl.id).set({ ...tpl, createdAt: FV.serverTimestamp() }); },
+  async deleteTaskTemplate(id) { await db.collection('taskTemplates').doc(id).delete(); },
+  async setShare(token, snap) { await db.collection('shares').doc(token).set({ ...snap, createdAt: FV.serverTimestamp() }, { merge: true }); },
+  async deleteShare(token) { await db.collection('shares').doc(token).delete(); },
+  async updateUserProfile(uidX, patch) { await db.collection('userProfiles').doc(uidX).set(patch, { merge: true }); fb.log('update', 'user', uidX, patch); usersSig = ''; await fb.loadUsers(); },
+  async uploadBackup(json, name) {
+    if (!storage) { try { await ensureStorage(); storage = window.firebase.storage(); } catch { storage = null; } }
+    if (!storage) throw new Error('storage-unavailable');
+    const ref = storage.ref(`backups/${state.user.uid}/${name}`);
+    await ref.putString(json, 'raw', { contentType: 'application/json' });
+    return ref.getDownloadURL();
+  },
+  async listBackups() {
+    if (!storage) { try { await ensureStorage(); storage = window.firebase.storage(); } catch { return []; } }
+    try { const r = await storage.ref(`backups/${state.user.uid}`).listAll(); return Promise.all(r.items.map(async i => ({ name: i.name, url: await i.getDownloadURL() }))); } catch { return []; }
   },
   /** حذف ناعم: تنتقل المهمة إلى سلة المحذوفات ويمكن استعادتها */
   async deleteTask(id) {
@@ -230,6 +302,7 @@ const fb = {
     if (t && msg.type === 'comment') {
       const to = new Set([...(t.assignedUserIds || []), t.assignedToUid, t.createdBy, ...(msg.mentions || [])].filter(x => x && x !== u.uid));
       fb.mail(state.users.filter(x => to.has(x.uid)).map(x => x.email), `تعليق جديد على «${t.name}»`, `<p><strong>${doc.name || doc.email}</strong>: ${msg.text}</p>`);
+      fb.pushNotifications(notifPayloads('comment', { task: t, mentions: msg.mentions || [], text: msg.text }));
     }
     return { ...doc, createdAt: Date.now() };
   },
@@ -335,9 +408,13 @@ const demo = {
     tasks.push({ id: 'tp1', goalId: 'g5', name: 'تحديد الجمهور', dueDate: d(7), startDate: d(0), completed: false, completedAt: null, priority: 'high', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: null, assignedToEmail: null, createdAt: now, updatedAt: now, stageId: 'idea', order: 0, checklist: [{ id: 'c9', text: 'استبيان', done: false }, { id: 'c10', text: 'مقابلات', done: false }] });
     tasks.push({ id: 'tp2', goalId: 'g5', name: 'بناء MVP', dueDate: d(30), startDate: d(7), completed: false, completedAt: null, priority: 'high', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: null, assignedToEmail: null, createdAt: now, updatedAt: now, stageId: 'build', order: 1, blockedBy: ['tp1'] });
     tasks.push({ id: 'tp3', goalId: 'g5', name: 'حملة الإطلاق', dueDate: d(45), startDate: d(30), completed: false, completedAt: null, priority: 'medium', createdBy: me, createdByEmail: 'me@demo.app', assignedToUid: null, assignedToEmail: null, createdAt: now, updatedAt: now, stageId: 'launch', order: 2, tags: ['tg9'] });
-    const users = [{ uid: me, email: 'me@demo.app', role: 'admin', displayName: 'أنا (تجريبي)', personalStages: null, personalStageMap: { t3: 'today', t4: 'week', t6: 'today' }, savedFilters: [{ id: 'sf1', name: 'عاجل ومتأخر', filters: { priority: 'high', status: 'open', group: 'due' } }] }, { uid: other, email: 'sara@demo.app', role: 'user', displayName: 'سارة' }, { uid: 'demo-omar', email: 'omar@demo.app', role: 'user', displayName: 'عمر' }];
+    const users = [{ uid: me, email: 'me@demo.app', role: 'admin', displayName: 'أنا (تجريبي)', personalStages: null, personalStageMap: { t3: 'today', t4: 'week', t6: 'today' }, savedFilters: [{ id: 'sf1', name: 'عاجل ومتأخر', filters: { priority: 'high', status: 'open', group: 'due' } }], hourlyRate: 150, weeklyCapacity: 40, lastSeen: now }, { uid: other, email: 'sara@demo.app', role: 'user', displayName: 'سارة', hourlyRate: 120, weeklyCapacity: 30, lastSeen: now - 3 * 60000 }, { uid: 'demo-omar', email: 'omar@demo.app', role: 'user', displayName: 'عمر', hourlyRate: 100, weeklyCapacity: 40, lastSeen: now - 2 * 86400000 }];
+    goals[2].budget = 5000; goals[0].budget = 3000;
+    goals[0].stages[1].autoAssign = other; goals[0].stages[2].limit = 2;
     const activity = [];
-    return { users, goals, tasks, activity };
+    const notifications = [{ id: 'n1', to: me, type: 'assigned', title: 'إطلاق الحملة الإعلانية', body: 'كُلّفت بهذه المهمة في إطلاق المتجر الإلكتروني', taskId: 't13', projectId: 'g3', by: other, byName: 'سارة', read: false, createdAt: now - 3600000 }, { id: 'n2', to: me, type: 'comment', title: 'اختبار الطلبات', body: 'هل انتهى اختبار الدفع بالبطاقة؟', taskId: 't12', projectId: 'g3', tab: 'details', by: other, byName: 'سارة', read: false, createdAt: now - 7200000 }];
+    const taskTemplates = [{ id: 'tt1', name: 'مراجعة كود', priority: 'medium', notes: 'تأكد من الاختبارات والتوثيق قبل الدمج.', checklist: ['قراءة التغييرات', 'تشغيل الاختبارات', 'ملاحظات للمطوّر'], plannedHours: 2, recurrence: null, durationDays: 1, createdBy: me, createdAt: now }];
+    return { users, goals, tasks, activity, notifications, taskTemplates, mailOutbox: [] };
   },
   init(onUser) {
     demo.load();
@@ -345,9 +422,27 @@ const demo = {
     state.user = { uid: me.uid, email: me.email, displayName: me.displayName };
     state.profile = me; state.isAdmin = true;
     state.users = demo.data.users;
+    demo.data.notifications = demo.data.notifications || []; demo.data.taskTemplates = demo.data.taskTemplates || []; demo.data.mailOutbox = demo.data.mailOutbox || [];
+    state.notifications = [...demo.data.notifications].sort((a, b) => b.createdAt - a.createdAt); state.taskTemplates = [...demo.data.taskTemplates]; state.presence = []; state.pending = 0;
     demo.refresh();
     onUser(state.user);
   },
+  pushNotifications(list) {
+    if (!list.length) return;
+    for (const n of list) demo.data.notifications.unshift({ id: uid(), ...n, by: state.user.uid, byName: actorName(), read: false, createdAt: Date.now() });
+    demo.data.notifications = demo.data.notifications.slice(0, 80);
+    state.notifications = [...demo.data.notifications]; demo.save();
+    document.dispatchEvent(new CustomEvent('goals:notifications', { detail: state.notifications })); notify('notifications');
+  },
+  async markNotificationRead(id) { const n = demo.data.notifications.find(x => x.id === id); if (n) n.read = true; state.notifications = [...demo.data.notifications]; demo.save(); notify('notifications'); },
+  async markAllNotificationsRead() { demo.data.notifications.forEach(n => { n.read = true; }); state.notifications = [...demo.data.notifications]; demo.save(); notify('notifications'); },
+  async registerPushToken() {}, async setPresence() {}, clearPresence() {},
+  async saveTaskTemplate(tpl) { demo.data.taskTemplates.unshift(tpl); state.taskTemplates = [...demo.data.taskTemplates]; demo.save(); notify('templates'); },
+  async deleteTaskTemplate(id) { demo.data.taskTemplates = demo.data.taskTemplates.filter(t => t.id !== id); state.taskTemplates = [...demo.data.taskTemplates]; demo.save(); notify('templates'); },
+  async setShare() { throw new Error('demo'); }, async deleteShare() {},
+  async updateUserProfile(uidX, patch) { const u = demo.data.users.find(x => x.uid === uidX); if (u) Object.assign(u, patch); state.users = [...demo.data.users]; if (uidX === state.user.uid) state.profile = u; demo.save(); notify('users'); },
+  mail(emails, subject, html) { demo.data.mailOutbox.push({ to: emails, subject, html, at: Date.now() }); demo.data.mailOutbox = demo.data.mailOutbox.slice(-20); demo.save(); },
+  async uploadBackup() { throw new Error('storage-unavailable'); }, async listBackups() { return []; },
   refresh() {
     const gs = [...demo.data.goals].sort((a, b) => b.createdAt - a.createdAt);
     state.trash = { goals: gs.filter(g => g.deleted), tasks: demo.data.tasks.filter(t => t.deleted) };
@@ -363,8 +458,19 @@ const demo = {
   async deleteGoal(id) { const g = demo.data.goals.find(x => x.id === id); if (g) { g.deleted = true; g.deletedAt = Date.now(); g.deletedBy = state.user.uid; } demo.data.tasks.forEach(t => { if (t.goalId === id && !t.deleted) { t.deleted = true; t.deletedAt = Date.now(); t.deletedWithGoal = id; } }); demo.log('delete', 'goal', id, {}); demo.save(); demo.refresh(); },
   async restoreGoal(id) { const g = demo.data.goals.find(x => x.id === id); if (g) { g.deleted = false; g.deletedAt = null; } demo.data.tasks.forEach(t => { if (t.deletedWithGoal === id) { t.deleted = false; t.deletedAt = null; t.deletedWithGoal = null; } }); demo.save(); demo.refresh(); },
   async purgeGoal(id) { demo.data.goals = demo.data.goals.filter(x => x.id !== id); demo.data.tasks = demo.data.tasks.filter(t => t.goalId !== id); demo.save(); demo.refresh(); },
-  async createTask(t) { const u = state.user; const a = state.users.find(x => x.uid === t.assignedToUid); const doc = { id: uid(), ...t, completed: false, completedAt: null, createdBy: u.uid, createdByEmail: u.email, assignedToUid: t.assignedToUid || null, assignedToEmail: a ? a.email : null, createdAt: Date.now(), updatedAt: Date.now() }; demo.data.tasks.push(doc); demo.log('create', 'task', doc.id, { name: t.name, goalId: t.goalId }); demo.save(); demo.refresh(); return doc.id; },
-  async updateTask(id, patch) { const t = demo.data.tasks.find(x => x.id === id); if (t) { if (patch.assignedToUid !== undefined) { const a = state.users.find(x => x.uid === patch.assignedToUid); patch.assignedToEmail = a ? a.email : null; } Object.assign(t, patch, { updatedAt: Date.now() }); } demo.log('update', 'task', id, patch); demo.save(); demo.refresh(); },
+  async createTask(t) { const u = state.user; const a = state.users.find(x => x.uid === t.assignedToUid); const doc = { id: uid(), ...t, completed: false, completedAt: null, createdBy: u.uid, createdByEmail: u.email, assignedToUid: t.assignedToUid || null, assignedToEmail: a ? a.email : null, createdAt: Date.now(), updatedAt: Date.now() }; demo.data.tasks.push(doc); demo.log('create', 'task', doc.id, { name: t.name, goalId: t.goalId }); demo.save(); demo.refresh(); demo.pushNotifications(notifPayloads('assigned', { task: doc, uids: [...new Set([...(doc.assignedUserIds || []), doc.assignedToUid].filter(Boolean))] })); return doc.id; },
+  async updateTask(id, patch) {
+    const t = demo.data.tasks.find(x => x.id === id); const before = t ? { ...t } : null;
+    if (t) { if (patch.assignedToUid !== undefined) { const a = state.users.find(x => x.uid === patch.assignedToUid); patch.assignedToEmail = a ? a.email : null; } Object.assign(t, patch, { updatedAt: Date.now() }); }
+    demo.log('update', 'task', id, patch); demo.save(); demo.refresh();
+    if (before) {
+      const was = new Set([...(before.assignedUserIds || []), before.assignedToUid].filter(Boolean));
+      const now = [...new Set([...(t.assignedUserIds || []), t.assignedToUid].filter(Boolean))].filter(x => !was.has(x));
+      if (now.length) demo.pushNotifications(notifPayloads('assigned', { task: t, uids: now }));
+      if (patch.completed === true && !before.completed) demo.pushNotifications(notifPayloads('done', { task: t }));
+      else if (patch.stageId && patch.stageId !== before.stageId) { const g = demo.data.goals.find(x => x.id === t.goalId); const s = g && (g.stages || []).find(x => x.id === patch.stageId); if (s) demo.pushNotifications(notifPayloads('stage', { task: t, stageName: s.name })); }
+    }
+  },
   async toggleTask(id, completed) { const t = demo.data.tasks.find(x => x.id === id); if (t) { t.completed = completed; t.completedAt = completed ? Date.now() : null; t.updatedAt = Date.now(); } demo.log('update', 'task', id, { completed }); demo.save(); demo.refresh(); },
   async deleteTask(id) { const t = demo.data.tasks.find(x => x.id === id); if (t) { t.deleted = true; t.deletedAt = Date.now(); t.deletedBy = state.user.uid; } demo.log('delete', 'task', id, { name: t && t.name }); demo.save(); demo.refresh(); },
   async restoreTask(id) { const t = demo.data.tasks.find(x => x.id === id); if (t) { t.deleted = false; t.deletedAt = null; t.deletedWithGoal = null; } demo.save(); demo.refresh(); },
@@ -373,7 +479,7 @@ const demo = {
   async setRole(u, role) { const x = demo.data.users.find(y => y.uid === u); if (x) x.role = role; demo.save(); notify('users'); },
   async updateProfile(patch) { Object.assign(demo.data.users[0], patch); state.profile = demo.data.users[0]; demo.save(); notify('profile'); },
   async loadMessages(taskId) { const t = demo.data.tasks.find(x => x.id === taskId); return t && t._messages ? [...t._messages] : []; },
-  async addMessage(taskId, msg) { const t = demo.data.tasks.find(x => x.id === taskId); if (!t) return null; t._messages = t._messages || []; const doc = { id: uid(), ...msg, uid: state.user.uid, email: state.user.email, name: state.profile.displayName || '', createdAt: Date.now() }; t._messages.push(doc); demo.save(); return doc; },
+  async addMessage(taskId, msg) { const t = demo.data.tasks.find(x => x.id === taskId); if (!t) return null; t._messages = t._messages || []; const doc = { id: uid(), ...msg, uid: state.user.uid, email: state.user.email, name: state.profile.displayName || '', createdAt: Date.now() }; t._messages.push(doc); demo.save(); if (msg.type === 'comment') demo.pushNotifications(notifPayloads('comment', { task: t, mentions: msg.mentions || [], text: msg.text })); return doc; },
   async uploadAttachment(taskId, file) {
     if (file.size > 400 * 1024) throw new Error('too-large');
     const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });

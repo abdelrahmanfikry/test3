@@ -3,6 +3,8 @@ import { state, taskBucket, isMine, userLabel, goalStatus } from './store.js';
 import { esc, relativeDue, daysFromToday, toMillis } from './utils.js';
 import { myActivities, activityState } from './model.js';
 import { openTask } from './task-panel.js';
+import { serverItems, onServerNotifications, markRead, markAllRead, enablePush, pushEnabled } from './notify.js';
+document.addEventListener('goals:notifications', (e) => onServerNotifications(e.detail || []));
 
 const $ = (id) => document.getElementById(id);
 const KEY = 'goals.inboxRead';
@@ -33,8 +35,11 @@ export function inboxItems() {
   }
   const read = readSet();
   items.forEach(i => { i.read = read.has(i.key); });
-  return items.sort((a, b) => (a.read - b.read) || (TYPES[a.type][2] - TYPES[b.type][2]));
+  const srv = serverItems();
+  return [...srv, ...items].sort((a, b) => (a.read - b.read) || ((a.serverId ? -1 : TYPES[a.type][2]) - (b.serverId ? -1 : TYPES[b.type][2])) || ((b.at || 0) - (a.at || 0)));
 }
+function ico(i) { return i.serverId ? i.icon : TYPES[i.type][0]; }
+function label(i) { return i.serverId ? i.label : TYPES[i.type][1]; }
 
 export function unreadCount() { return inboxItems().filter(i => !i.read).length; }
 
@@ -49,13 +54,14 @@ function renderPanel() {
   const p = $('inboxPanel'); if (!p) return;
   const items = inboxItems();
   const unread = items.filter(i => !i.read).length;
-  p.innerHTML = `<div class="inbox-head"><strong>الإشعارات</strong><span class="hint">${unread ? `${unread} غير مقروء` : 'كل شيء مقروء'}</span>${items.length ? `<button class="linkbtn" id="inboxReadAll">تعليم الكل كمقروء</button>` : ''}</div>
-    <div class="inbox-list">${items.length ? items.slice(0, 40).map(i => `<button class="inbox-item ${i.read ? 'read' : ''}" data-key="${esc(i.key)}"><span class="inbox-ico">${TYPES[i.type][0]}</span><span class="inbox-main"><span class="inbox-title">${esc(i.title)}</span><span class="hint">${TYPES[i.type][1]} · ${esc(i.sub)}</span></span>${i.read ? '' : '<i class="dot"></i>'}</button>`).join('') : '<p class="muted" style="padding:1rem;text-align:center">لا إشعارات الآن 🎉</p>'}</div>`;
-  const all = $('inboxReadAll'); if (all) all.onclick = () => { const s = readSet(); items.forEach(i => s.add(i.key)); saveRead(s); refreshInboxBadge(); };
+  p.innerHTML = `<div class="inbox-head"><strong>الإشعارات</strong><span class="hint">${unread ? `${unread} غير مقروء` : 'كل شيء مقروء'}</span>${!pushEnabled() ? '<button class="linkbtn" id="inboxPush" title="إشعارات المتصفح">🔔 تفعيل</button>' : ''}${items.length ? `<button class="linkbtn" id="inboxReadAll">تعليم الكل كمقروء</button>` : ''}</div>
+    <div class="inbox-list">${items.length ? items.slice(0, 50).map(i => `<button class="inbox-item ${i.read ? 'read' : ''}" data-key="${esc(i.key)}"><span class="inbox-ico">${ico(i)}</span><span class="inbox-main"><span class="inbox-title">${esc(i.title)}</span><span class="hint">${label(i)} · ${esc(i.sub)}</span></span>${i.read ? '' : '<i class="dot"></i>'}</button>`).join('') : '<p class="muted" style="padding:1rem;text-align:center">لا إشعارات الآن 🎉</p>'}</div>`;
+  const all = $('inboxReadAll'); if (all) all.onclick = () => { const s = readSet(); items.forEach(i => { if (!i.serverId) s.add(i.key); }); saveRead(s); markAllRead(); refreshInboxBadge(); };
+  const pb = $('inboxPush'); if (pb) pb.onclick = async () => { if (await enablePush()) renderPanel(); };
   p.querySelectorAll('[data-key]').forEach(b => {
     b.onclick = () => {
       const it = items.find(x => x.key === b.dataset.key); if (!it) return;
-      const s = readSet(); s.add(it.key); saveRead(s);
+      if (it.serverId) markRead(it.serverId); else { const s = readSet(); s.add(it.key); saveRead(s); }
       closeInbox();
       if (it.taskId) openTask(it.taskId, it.tab); else if (it.projectId) location.hash = `project/${it.projectId}/${it.tab || 'overview'}`;
       refreshInboxBadge();
